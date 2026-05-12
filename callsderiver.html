@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fleet Driver Portal</title>
+    
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    
+    <link rel="manifest" href="driver-manifest.json?v=3">
+    <meta name="theme-color" content="#51b882">
+    <link rel="apple-touch-icon" href="logo.png?v=3">
+    <link rel="icon" type="image/png" href="logo.png?v=3">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        :root { 
+            --mint: #51b882; 
+            --bg: #f4f6fa; 
+            --text: #111827; 
+            --light-text: #6b7280; 
+            --border: #e5e7eb; 
+            --login-blue: #293874; 
+            --link-blue: #3b82f6;
+        }
+        
+        body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); padding-bottom: 80px; -webkit-font-smoothing: antialiased; }
+        
+        /* ------------------------------------------------------------------
+           LOGIN SCREEN MATCHING SCREENSHOT
+           ------------------------------------------------------------------ */
+        #login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--bg);
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 5000;
+        }
+        .login-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 24px;
+            width: 90%;
+            max-width: 380px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+            text-align: center;
+        }
+        .login-title {
+            color: var(--login-blue);
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 30px;
+            letter-spacing: -0.5px;
+        }
+        .login-input {
+            width: 100%;
+            padding: 16px;
+            margin-bottom: 16px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            box-sizing: border-box;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            background: white;
+            outline: none;
+            transition: 0.2s;
+        }
+        .login-input:focus {
+            border-color: var(--login-blue);
+            box-shadow: 0 0 0 3px rgba(41, 56, 116, 0.1);
+        }
+        .login-btn-submit {
+            background: var(--login-blue);
+            color: white;
+            width: 100%;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: 0.2s;
+        }
+        .login-btn-submit:active { transform: scale(0.98); }
+        .login-link {
+            margin-top: 24px;
+            color: var(--link-blue);
+            font-weight: 600;
+            font-size: 14px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        /* ------------------------------------------------------------------
+           DASHBOARD & APP STYLES
+           ------------------------------------------------------------------ */
+        .header { background: white; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .status { display: flex; align-items: center; gap: 6px; color: var(--mint); font-size: 13px; font-weight: 600; }
+        .dot { height: 8px; width: 8px; background: var(--mint); border-radius: 50%; }
+        .btn-logout { background: #f0fdf4; border: 1px solid var(--mint); border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--mint); }
+
+        .container { padding: 20px; max-width: 500px; margin: auto; }
+        .section-title { font-size: 13px; font-weight: 800; color: #111827; text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 16px; }
+
+        .order-card { background: white; border-radius: 20px; padding: 24px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; }
+        .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .price { font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+        .status-pill { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .status-new { background: #fef3c7; color: #d97706; }
+        .status-active { background: #ecfdf5; color: var(--mint); }
+
+        .timeline { position: relative; padding-left: 24px; margin-bottom: 24px; }
+        .t-line { position: absolute; left: 5px; top: 14px; bottom: 14px; width: 2px; background: #e5e7eb; }
+        .step { position: relative; margin-bottom: 20px; }
+        .step:last-child { margin-bottom: 0; }
+        
+        .marker-pickup { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: white; border: 3px solid var(--mint); box-sizing: border-box; }
+        .marker-dropoff { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 3px; background: #ef4444; }
+        .label { font-size: 11px; font-weight: 700; color: #8c929c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .val { font-size: 15px; font-weight: 600; color: #111827; line-height: 1.4; }
+
+        .info-box { background: #f8f9fa; border-radius: 16px; padding: 16px; margin-bottom: 20px; }
+        .info-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; color: #374151; font-weight: 500; }
+        .info-row:last-child { margin-bottom: 0; }
+        .svg-icon { color: #8c929c; flex-shrink: 0; }
+        
+        audio::-webkit-media-controls-panel { background-color: #f1f5f9; }
+        audio { filter: sepia(20%) saturate(70%) grayscale(1) contrast(90%) invert(10%); border-radius: 8px; }
+
+        .btn-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .btn-outline { flex: 1; background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px 12px; font-size: 14px; font-weight: 600; color: var(--text); text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;}
+        .btn-outline:active { background: #f3f4f6; }
+        
+        .btn-complete { background: #111827; color: white; width: 100%; padding: 18px; border-radius: 12px; font-size: 15px; font-weight: 600; border: none; cursor: pointer; transition: 0.2s;}
+        .btn-complete:active { transform: scale(0.98); }
+
+        .input-field { width: 100%; padding: 16px; margin-bottom: 16px; border-radius: 12px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
+
+        #chat-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        
+        .chat-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 85%; background: #0b141a; border-top-left-radius: 24px; border-top-right-radius: 24px; display: flex; flex-direction: column; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); }
+        .chat-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 16px; background: #0b141a; color: white; border-top-left-radius: 24px; border-top-right-radius: 24px; border-bottom: 1px solid rgba(255,255,255,0.05);}
+        .close-chat { background: none; border: none; font-size: 24px; cursor: pointer; color: white; }
+
+        #chat-box {
+            height: 0 !important;         
+            flex-grow: 1 !important;      
+            border-radius: 0 !important; 
+            margin-bottom: 0 !important;
+        }
+        #chat-container-module > div:last-child {
+            padding: 10px 15px 25px 15px !important; 
+            background: #0b141a !important;          
+        }
+
+        #custom-toast { visibility: hidden; min-width: 250px; background-color: var(--text); color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 5000; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.3s; }
+        #custom-toast.show { visibility: visible; opacity: 1; }
+        
+        .empty-placeholder { text-align: center; padding: 40px 20px; background: white; border-radius: 20px; border: 2px dashed #e5e7eb; margin-bottom: 24px; box-shadow: 0 4px 10px rgba(0,0,0,0.01); }
+        .empty-placeholder p { margin: 0; }
+        .empty-placeholder-title { color: #4b5563; font-size: 15px; font-weight: 700; margin-top: 12px !important; }
+        .empty-placeholder-sub { color: #9ca3af; font-size: 13px; margin-top: 6px !important; }
+
+        @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(37, 211, 102, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); } }
+    </style>
+</head>
+<body>
+
+    <audio id="meeting-audio" style="display:none;"></audio>
+    <audio id="order-ringtone" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" preload="auto" style="display:none;"></audio>
+
+    <div id="custom-toast"></div>
+
+    <div id="incoming-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:#25D366; color:white; padding:20px; border-radius:16px; z-index:4000; text-align:center; animation: pulse-green 1.5s infinite; box-shadow: 0 10px 25px rgba(37, 211, 102, 0.3);">
+        <h3 style="margin:0 0 15px 0; font-size:18px;">📞 Customer is calling...</h3>
+        <button onclick="answerCall()" style="background:white; color:#25D366; border:none; padding:10px 24px; border-radius:20px; font-weight:800; font-size:15px; cursor:pointer;">Answer</button>
+        <button onclick="dismissCall()" style="background:transparent; color:white; border:2px solid white; padding:8px 24px; border-radius:20px; font-weight:800; font-size:15px; cursor:pointer; margin-left:10px;">Decline</button>
+    </div>
+
+    <div id="active-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:#111827; color:white; padding:15px; border-radius:16px; z-index:4000; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 10px 0; font-size:16px;"> Secure Call Active</h3>
+        <button onclick="endCall()" style="background:#ef4444; color:white; border:none; padding:8px 24px; border-radius:20px; font-weight:800; font-size:14px; cursor:pointer;">End Call</button>
+    </div>
+
+    <div id="login-screen">
+        <div class="login-card">
+            <h1 class="login-title">Driver Portal Login</h1>
+            <input type="email" id="email" class="login-input" placeholder="Driver Email">
+            <input type="password" id="password" class="login-input" placeholder="Password">
+            <button id="login-btn" class="login-btn-submit">Secure Login</button>
+            <button onclick="document.getElementById('login-screen').style.display='none'; document.getElementById('signup-screen').style.display='block';" class="login-link">New Driver? Register here.</button>
+        </div>
+    </div>
+
+    <div id="signup-screen" style="display: none; padding: 40px 20px; max-width: 400px; margin: auto; height: 100vh; overflow-y: auto; padding-bottom: 120px;">
+        <h1 style="font-size: 24px; margin-bottom: 10px; color: #111827; font-weight: 800;">Driver Registration</h1>
+        <p style="font-size: 14px; color: #6b7280; margin-bottom: 20px;">Provide your full details for background verification.</p>
+        
+        <div class="section-title">Personal Details</div>
+        <input type="text" id="reg-name" class="input-field" placeholder="Full Name (as on ID)">
+        <input type="tel" id="reg-phone" class="input-field" placeholder="Phone Number">
+        <input type="text" id="reg-address" class="input-field" placeholder="Physical Home Address">
+        
+        <div class="section-title">Emergency Contact</div>
+        <input type="text" id="reg-kin-name" class="input-field" placeholder="Next of Kin Name">
+        <input type="tel" id="reg-kin-phone" class="input-field" placeholder="Next of Kin Phone">
+
+        <div class="section-title">Vehicle Info</div>
+        <select id="reg-vehicle-type" class="input-field" style="appearance: auto; color: #6b7280;">
+            <option value="" disabled selected>Select Vehicle Type</option>
+            <option value="Car">Car</option>
+            <option value="Motorbike">Motorbike</option>
+            <option value="Bicycle">Bicycle</option>
+            <option value="Walking">Walking</option>
+        </select>
+        <input type="text" id="reg-plate" class="input-field" placeholder="License Plate (If applicable)">
+
+        <div class="section-title">Account Security</div>
+        <input type="email" id="reg-email" class="input-field" placeholder="Email Address">
+        <input type="password" id="reg-password" class="input-field" placeholder="Create Password">
+        
+        <div class="section-title">Verification Documents</div>
+        <label style="display: block; text-align: left; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #374151;">1. Official ID / Passport</label>
+        <input type="file" id="reg-id-photo" class="input-field" accept="image/*" style="padding: 10px;">
+
+        <label style="display: block; text-align: left; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #374151;">2. Clear Selfie (Face must match ID)</label>
+        <input type="file" id="reg-selfie-photo" class="input-field" accept="image/*" style="padding: 10px; margin-bottom: 20px;">
+        
+        <div id="reg-status" style="font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 10px; display: none;"></div>
+
+        <button id="register-btn" class="login-btn-submit">Submit Registration</button>
+        <button onclick="document.getElementById('signup-screen').style.display='none'; document.getElementById('login-screen').style.display='flex';" style="width: 100%; margin-top: 15px; background: none; border: none; color: #6b7280; cursor: pointer; font-size: 14px;">Back to Login</button>
+    </div>
+
+    <div id="pending-approval-screen" style="display: none; padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="var(--mint)" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <h1 style="font-size: 24px; color: var(--text); font-weight: 800;">Account Under Review</h1>
+        <p style="color: var(--light-text); margin-top: 10px; font-size: 14px; line-height: 1.5;">Your registration has been received. Our admin team is currently reviewing your documents. This page will automatically update once you are approved.</p>
+        <button onclick="logoutFromPending()" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <div id="suspended-screen" style="display: none; padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+        <h1 style="font-size: 24px; color: #ef4444; font-weight: 800;">Account Suspended</h1>
+        <p style="color: var(--light-text); margin-top: 10px; font-size: 14px; line-height: 1.5;">Your account has been suspended by the administration. Please contact support for more details.</p>
+        <button onclick="logoutFromPending()" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <div id="dashboard" style="display: none;">
+        <div class="header">
+            <div id="driver-brand-box" style="display: flex; align-items: center; gap: 10px;">
+                <h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Bofelo Driver</h1>
+            </div>
+            <div class="header-right">
+                <button onclick="document.getElementById('profile-modal').style.display='block'" class="btn-logout">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg> Profile
+                    </span>
+                </button>
+                <div class="status"><div class="dot"></div> Online</div>
+            </div>
+        </div>
+        
+        <div class="container">
+            <div class="section-title" style="margin-top: 5px;">Active Deliveries</div>
+            <div id="active-container"></div>
+
+            <div class="section-title">New Requests</div>
+            <div id="pending-container"></div>
+        </div>
+    </div>
+
+    <button id="installAppBtn" style="display: none; position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 16px 32px; background-color: var(--text); color: white; border: none; border-radius: 50px; font-size: 15px; font-weight: bold; box-shadow: 0px 10px 25px rgba(0,0,0,0.3); z-index: 1000; cursor: pointer;">
+        📲 Install Driver App
+    </button>
+
+    <div id="profile-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 3000; overflow-y: auto; padding-bottom: 40px;">
+        <div class="header">
+            <h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Profile & Analytics</h1>
+            <button onclick="document.getElementById('profile-modal').style.display='none'" style="background: none; border: none; font-size: 28px; line-height: 1; cursor: pointer; color: #6b7280;">×</button>
+        </div>
+        <div class="container">
+            
+            <div id="view-profile"></div>
+
+            <div class="order-card" style="background: linear-gradient(135deg, #111827, #1f2937); color: white; padding: 24px; margin-top: 24px; margin-bottom: 24px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
+                <div class="card-top" style="margin-bottom: 12px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">Available to Withdraw</div>
+                    <div class="status-pill" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">M-PESA</div>
+                </div>
+                <div class="price" id="wallet-balance-display" style="margin-bottom: 20px; font-size: 36px; color: #4ade80;">M 0.00</div>
+                <button id="withdraw-btn" class="btn-complete" style="background: white; color: #111827; padding: 14px; font-size: 15px; font-weight: 800; border-radius: 12px; box-shadow: 0 4px 10px rgba(255,255,255,0.1);" onclick="requestWithdrawal()">Withdraw Earnings</button>
+            </div>
+
+            <div style="background: white; padding: 24px; border-radius: 20px; margin-bottom: 20px; border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.02);">
+                <label style="color: var(--mint); font-weight: 800; font-size: 13px; text-transform: uppercase;">Assigned Fleet / Store</label>
+                <p style="font-size: 13px; color: var(--light-text); margin-bottom: 15px; margin-top: 8px; line-height: 1.5;">Enter a Store ID to exclusively receive orders for that business. Leave blank for standard Bofelo deliveries.</p>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="driver-tag-input" class="input-field" placeholder="e.g. FosoPharmacy" style="margin-bottom: 0; background: #f9fafb;">
+                    <button type="button" onclick="applyDriverTag()" style="background: var(--mint); color: white; border: none; border-radius: 12px; padding: 0 20px; font-weight: 800; cursor: pointer;">Save</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="chat-modal">
+        <div class="chat-container">
+            <div class="chat-header">
+                <span>Chat & Call</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <button onclick="triggerCellularCall()" style="display:flex; align-items:center; justify-content:center; background:#111827; color:white; border:none; border-radius:50%; width:36px; height:36px; cursor:pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.2);" title="Cellular PBX Call">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                    </button>
+                    <button onclick="startCall()" style="background:#25D366; color:white; border:none; border-radius:50%; width:36px; height:36px; cursor:pointer; margin-right:8px; box-shadow: 0 4px 10px rgba(37, 211, 102, 0.3); display:flex; align-items:center; justify-content:center;" title="Free In-App Call">📞</button>
+                    <button class="close-chat" onclick="closeChatModal()">×</button>
+                </div>
+            </div>
+            <div id="chat-container-module" style="display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; background: #0b141a;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, query, where, onSnapshot, doc, updateDoc, setDoc, addDoc, serverTimestamp, orderBy, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js";
+        import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app-check.js";
+        
+        import { updateQueue, acceptOrder as moduleAcceptOrder, declineOrder, completeDelivery } from './orderManager.js';
+        import { joinCallRoom, endCall, ringCustomerPhone } from './callManager.js';
+        import { startTracking, stopTracking } from './trackingManager.js';
+        import { setupChatSystem, stopChatListener } from './chatManager.js';
+        import { monitorAuthState, loginUser, logoutUser, registerDriver } from './authManager.js';
+        import { setupForegroundListener, getDeviceToken, sendAWSNotification } from './notificationManager.js';
+        import { ProfileManager } from './profileManager.js';
+
+        const emptyActiveHtml = `
+            <div class="empty-placeholder">
+                <svg width="40" height="40" fill="none" stroke="#9ca3af" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <p class="empty-placeholder-title">No Active Deliveries</p>
+                <p class="empty-placeholder-sub">You are currently available for new requests.</p>
+            </div>
+        `;
+
+        const emptyPendingHtml = `
+            <div class="empty-placeholder">
+                <svg width="40" height="40" fill="none" stroke="#9ca3af" stroke-width="1.5" viewBox="0 0 24 24" style="margin-bottom: 8px;"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                <p class="empty-placeholder-title">Searching for requests...</p>
+                <p class="empty-placeholder-sub">New delivery requests will appear here.</p>
+            </div>
+        `;
+
+        window.showToast = function(message) {
+            let toast = document.getElementById("custom-toast");
+            toast.innerText = message; 
+            toast.classList.add("show");
+            setTimeout(() => { toast.classList.remove("show"); }, 3000);
+        };
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDEWFybj_bQMCn8QNvc5uSeriwmen-ZfWQ",
+            authDomain: "agile-skyline-489209-t3.firebaseapp.com",
+            projectId: "agile-skyline-489209-t3",
+            storageBucket: "agile-skyline-489209-t3.firebasestorage.app",
+            messagingSenderId: "490119776359",
+            appId: "1:490119776359:web:c940ba8ddb2cc2fd182cc2"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const appCheck = initializeAppCheck(app, {
+            provider: new ReCaptchaV3Provider('6Leg2NksAAAAAJICVaO6ehdDp1HKLmIg3QMF2_3U'), 
+            isTokenAutoRefreshEnabled: true
+        });
+
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const messaging = getMessaging(app);
+        const storage = getStorage(app);
+
+        window.MY_FLEET_NAME = localStorage.getItem('bofelo_driver_tag') || "General";
+
+        document.addEventListener("DOMContentLoaded", () => {
+            if (window.MY_FLEET_NAME !== "General") {
+                const tagInputEl = document.getElementById('driver-tag-input');
+                if (tagInputEl) tagInputEl.value = window.MY_FLEET_NAME;
+            }
+            window.applyDriverBranding();
+        });
+
+        window.applyDriverBranding = async function() {
+            const brandBox = document.getElementById('driver-brand-box');
+            if (!brandBox) return;
+
+            if (window.MY_FLEET_NAME === "General") {
+                brandBox.innerHTML = `<h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Bofelo Driver</h1>`;
+                return;
+            }
+            
+            try {
+                const brandDoc = await getDoc(doc(db, "tags", window.MY_FLEET_NAME));
+                if (brandDoc.exists()) {
+                    const data = brandDoc.data();
+                    if (data.logoUrl && data.isPremium) {
+                        brandBox.innerHTML = `<img src="${data.logoUrl}" style="height: 30px; width: auto; border-radius:4px;" alt="${data.displayName}">`;
+                    } else {
+                        brandBox.innerHTML = `<h1 style="font-size: 18px; margin: 0; font-weight: 800; color: var(--mint);">${data.displayName} Driver</h1>`;
+                    }
+                } else {
+                    window.MY_FLEET_NAME = "General";
+                    localStorage.removeItem('bofelo_driver_tag');
+                    document.getElementById('driver-tag-input').value = "";
+                    brandBox.innerHTML = `<h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Bofelo Driver</h1>`;
+                }
+            } catch(e) { console.warn("Could not load branding", e); }
+        };
+
+        window.applyDriverTag = async function() {
+            const tagInput = document.getElementById('driver-tag-input').value.trim();
+            
+            if (!tagInput) {
+                window.MY_FLEET_NAME = "General";
+                localStorage.setItem('bofelo_driver_tag', "General");
+                window.applyDriverBranding();
+                window.showToast("Reverted to General Fleet.");
+                setTimeout(() => window.location.reload(), 1500); 
+                return;
+            }
+
+            window.MY_FLEET_NAME = tagInput;
+            localStorage.setItem('bofelo_driver_tag', window.MY_FLEET_NAME);
+            window.showToast("Applying Fleet Tag...");
+            await window.applyDriverBranding();
+            window.showToast("Store connected! Reloading feed...");
+            
+            setTimeout(() => window.location.reload(), 1500); 
+        };
+
+        window.stopTracking = stopTracking;
+        window.declineOrder = declineOrder;
+        window.completeDelivery = completeDelivery;
+        window.currentDriverToken = null;
+
+        window.acceptOrder = async (orderId) => {
+            if (typeof moduleAcceptOrder === 'function') {
+                moduleAcceptOrder(orderId);
+            }
+            if (window.currentDriverToken) {
+                try {
+                    await updateDoc(doc(db, "orders", orderId), { 
+                        driverFcmToken: window.currentDriverToken,
+                        driverId: window.currentDriverId 
+                    });
+                } catch (err) {
+                    console.error("Failed to attach token to order:", err);
+                }
+            }
+        };
+
+        let gpsWatchId = null;
+        let currentChatUnsubscribe = null;
+        window.activeChatOrderId = null;
+        window.currentDriverId = null;
+        window.isDriverVIP = false;
+        window.incomingCallOrderId = null;
+        window.activeMeetingSession = null;
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('Service Worker registered:', reg.scope))
+                .catch(err => console.error('Service Worker registration failed:', err));
+        }
+
+        window.logoutFromPending = async () => {
+            if (window.stopTracking) window.stopTracking(); 
+            await signOut(auth);
+            localStorage.removeItem('user_profile'); 
+            window.location.reload();
+        };
+
+        monitorAuthState(auth, 
+            async (user) => {
+                window.currentDriverId = user.uid;
+                
+                document.getElementById('login-screen').style.display = 'none';
+                
+                ProfileManager.init(db, user.uid, "driver");
+                
+                ProfileManager.logoutHook = async () => {
+                    if (confirm("Are you sure you want to log out?")) {
+                        window.logoutFromPending();
+                    }
+                };
+
+                const token = await getDeviceToken(messaging);
+                if (token) {
+                    await setDoc(doc(db, "drivers", user.uid), { fcmToken: token }, { merge: true });
+                    window.currentDriverToken = token;
+                }
+
+                onSnapshot(doc(db, "drivers", user.uid), (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        const status = data.status || 'pending';
+
+                        if (status === 'pending') {
+                            document.getElementById('dashboard').style.display = 'none';
+                            if(document.getElementById('suspended-screen')) document.getElementById('suspended-screen').style.display = 'none';
+                            if(document.getElementById('pending-approval-screen')) document.getElementById('pending-approval-screen').style.display = 'block';
+                            if (window.stopTracking) window.stopTracking();
+                            return; 
+                        }
+                        
+                        if (status === 'suspended') {
+                            document.getElementById('dashboard').style.display = 'none';
+                            if(document.getElementById('pending-approval-screen')) document.getElementById('pending-approval-screen').style.display = 'none';
+                            if(document.getElementById('suspended-screen')) document.getElementById('suspended-screen').style.display = 'block';
+                            if (window.stopTracking) window.stopTracking();
+                            return; 
+                        }
+
+                        if(document.getElementById('pending-approval-screen')) document.getElementById('pending-approval-screen').style.display = 'none';
+                        if(document.getElementById('suspended-screen')) document.getElementById('suspended-screen').style.display = 'none';
+                        document.getElementById('dashboard').style.display = 'block';
+
+                        window.isDriverVIP = data.isPriority === true;
+                        
+                        const balance = data.walletBalance || 0;
+                        const balanceEl = document.getElementById('wallet-balance-display');
+                        if(balanceEl) {
+                            balanceEl.innerText = 'M ' + parseFloat(balance).toFixed(2);
+                        }
+                    } else {
+                        window.logoutFromPending();
+                    }
+                });
+                
+                startPendingOrdersListener();
+                startActiveOrdersListener();
+            },
+            () => {
+                document.getElementById('dashboard').style.display = 'none';
+                if(document.getElementById('pending-approval-screen')) document.getElementById('pending-approval-screen').style.display = 'none';
+                if(document.getElementById('suspended-screen')) document.getElementById('suspended-screen').style.display = 'none';
+                document.getElementById('login-screen').style.display = 'flex';
+                window.currentDriverId = null;
+                window.currentDriverToken = null;
+            }
+        );
+
+        document.getElementById('login-btn').addEventListener('click', async () => {
+            try { await Notification.requestPermission(); } catch(e) { console.warn(e); }
+            const email = document.getElementById('email').value.trim();
+            const pass = document.getElementById('password').value;
+            
+            const result = await loginUser(auth, email, pass);
+            if (!result.success) window.showToast("Login Failed: " + result.error);
+        });
+
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            const email = document.getElementById('reg-email').value;
+            const pass = document.getElementById('reg-password').value;
+            const idPhotoFile = document.getElementById('reg-id-photo').files[0];
+            const selfieFile = document.getElementById('reg-selfie-photo').files[0];
+            const statusEl = document.getElementById('reg-status');
+            const registerBtn = document.getElementById('register-btn');
+
+            if (!email || !pass || !idPhotoFile || !selfieFile) {
+                return window.showToast("Please fill in all required fields and upload both photos.");
+            }
+
+            registerBtn.disabled = true;
+            registerBtn.innerText = "Uploading Documents...";
+            registerBtn.style.opacity = "0.7";
+            
+            if (statusEl) {
+                statusEl.style.display = "block";
+                statusEl.style.color = "var(--login-blue)";
+                statusEl.innerText = "Creating secure profile...";
+            }
+
+            const driverData = {
+                fullName: document.getElementById('reg-name').value.trim(),
+                phoneNumber: document.getElementById('reg-phone').value.trim(),
+                homeAddress: document.getElementById('reg-address').value.trim(),
+                emergencyContact: { 
+                    name: document.getElementById('reg-kin-name').value.trim(), 
+                    phone: document.getElementById('reg-kin-phone').value.trim() 
+                },
+                vehicle: { 
+                    type: document.getElementById('reg-vehicle-type').value, 
+                    plateNumber: document.getElementById('reg-plate').value.trim() || "N/A"
+                },
+                status: 'pending'
+            };
+
+            const result = await registerDriver(auth, db, storage, email, pass, driverData, idPhotoFile, selfieFile, statusEl);
+            
+            registerBtn.disabled = false;
+            registerBtn.innerText = "Submit Registration";
+            registerBtn.style.opacity = "1";
+
+            if (result.success) {
+                window.showToast("Account created successfully! Please login.");
+                document.getElementById('signup-screen').style.display = 'none'; 
+                document.getElementById('login-screen').style.display = 'flex';
+                if (statusEl) statusEl.style.display = "none";
+            } else {
+                if (statusEl) {
+                    statusEl.style.color = "#ef4444";
+                    statusEl.innerText = "Error: " + result.error;
+                }
+                window.showToast("Registration Failed: " + result.error);
+            }
+        });
+
+        setupForegroundListener(messaging, 'order-ringtone');
+
+        window.verifyPinAndComplete = async (orderId) => {
+            const enteredPin = prompt("Please enter the 4-digit PIN provided by the customer:");
+            
+            if (!enteredPin) return; 
+
+            try {
+                const orderSnap = await getDoc(doc(db, "orders", orderId));
+                
+                if (orderSnap.exists()) {
+                    const orderData = orderSnap.data();
+                    
+                    if (!orderData.deliveryPin || orderData.deliveryPin === enteredPin) {
+                        window.showToast("PIN Verified! Processing completion...");
+                        updateStatus(orderId, 'Completed');
+                    } else {
+                        window.showToast("Incorrect PIN. Please ask the customer.");
+                    }
+                }
+            } catch (error) {
+                console.error("Error verifying PIN:", error);
+                window.showToast("Network error verifying PIN. Try again.");
+            }
+        };
+
+        window.updateStatus = async (id, status) => {
+            let updateData = { status: status };
+            if (status === 'Accepted') updateData.driverId = window.currentDriverId;
+            
+            await updateDoc(doc(db, "orders", id), updateData);
+            
+            if (status === 'Completed') {
+                stopTracking(); 
+                
+                try {
+                    const orderSnap = await getDoc(doc(db, "orders", id));
+                    if (orderSnap.exists()) {
+                        const oData = orderSnap.data();
+                        
+                        let base = oData.baseDeliveryFee ? parseFloat(oData.baseDeliveryFee.replace(/[^\d.]/g, '')) : 0;
+                        if (!base && oData.fee) base = parseFloat(oData.fee.replace(/[^\d.]/g, '')) || 0;
+                        
+                        let tip = oData.tipAmount ? parseFloat(oData.tipAmount) : 0;
+                        let itemFunds = oData.itemFunds ? parseFloat(oData.itemFunds) : 0;
+                        
+                        let adminCommission = Math.ceil(base * 0.01);
+                        if (base === 0) adminCommission = 0; 
+                        
+                        let driverEarnings = Math.floor(base * 0.95) + tip; 
+                        let totalToAdd = driverEarnings + itemFunds - adminCommission;
+
+                        if (totalToAdd > 0 && window.currentDriverId) {
+                            await updateDoc(doc(db, "drivers", window.currentDriverId), {
+                                walletBalance: increment(totalToAdd),
+                                deliveriesCount: increment(1)
+                            });
+                            
+                            await updateDoc(doc(db, "orders", id), {
+                                adminCommissionDeducted: adminCommission,
+                                driverPayoutAmount: totalToAdd
+                            });
+                            
+                            console.log(`Added M${totalToAdd} to wallet. (Admin Comm: M${adminCommission})`);
+                            window.showToast(`Delivery Complete! M${totalToAdd} added to Wallet (1% Admin Fee Deducted).`);
+                        } else {
+                            await updateDoc(doc(db, "drivers", window.currentDriverId), { deliveriesCount: increment(1) });
+                            window.showToast(`Delivery Complete!`);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Failed to update wallet balance:", error);
+                }
+            }
+        };
+
+        let pendingOrdersList = [];
+        let pendingUnsubscribe = null;
+        let isInitialLoad = true;
+        let refreshInterval = null; 
+
+        function startPendingOrdersListener() {
+            if (pendingUnsubscribe) pendingUnsubscribe();
+            if (refreshInterval) clearInterval(refreshInterval);
+            
+            const q = query(collection(db, "orders"), where("status", "in", ["Paid", "Pending"]));
+            pendingUnsubscribe = onSnapshot(q, (snap) => {
+                
+                snap.docChanges().forEach(async change => {
+                    if (change.type === "added" && !isInitialLoad && Notification.permission === 'granted') {
+                        let orderOrigin = change.doc.data().appOrigin || "General";
+                        
+                        if (orderOrigin === window.MY_FLEET_NAME) {
+                            let iconUrl = "logo.png"; 
+                            let titleText = "🔔 New Delivery Request!";
+
+                            if (orderOrigin !== "General") {
+                                try {
+                                    const tagDoc = await getDoc(doc(db, "tags", orderOrigin));
+                                    if (tagDoc.exists()) {
+                                        const tagData = tagDoc.data();
+                                        titleText = `New order from ${tagData.displayName}!`;
+                                        if (tagData.isPremium && tagData.logoUrl) {
+                                            iconUrl = tagData.logoUrl;
+                                        }
+                                    }
+                                } catch(e) { console.warn("Could not fetch tag for notification", e); }
+                            }
+
+                            navigator.serviceWorker.ready.then(reg => {
+                                reg.showNotification(titleText, {
+                                    body: `Pickup: ${change.doc.data().pickup || 'Location'}`,
+                                    icon: iconUrl,
+                                    badge: iconUrl
+                                });
+                            });
+                        }
+                    }
+                });
+                isInitialLoad = false;
+
+                const processQueue = () => {
+                    let incomingOrders = [];
+                    let hasDelayedOrders = false;
+                    const NOW = Date.now();
+                    
+                    snap.forEach(d => {
+                        let oData = d.data();
+                        let orderOrigin = oData.appOrigin || "General";
+                        
+                        if (orderOrigin !== window.MY_FLEET_NAME && oData.orderTimestamp) {
+                            let timePassed = NOW - oData.orderTimestamp;
+                            let fiveMinutes = 5 * 60 * 1000; 
+                            
+                            if (timePassed < fiveMinutes) {
+                                hasDelayedOrders = true; 
+                                return; 
+                            }
+                        }
+                        
+                        let itemFunds = oData.itemFunds ? parseFloat(oData.itemFunds) : 0;
+                        let tip = oData.tipAmount ? parseFloat(oData.tipAmount) : 0;
+                        
+                        if (oData.baseDeliveryFee) {
+                            let base = parseFloat(oData.baseDeliveryFee.replace(/[^\d.]/g, '')) || 0;
+                            let adminCut = Math.ceil(base * 0.01);
+                            let driverEarns = Math.floor(base * 0.95) + tip - adminCut;
+                            
+                            oData.fee = "M" + driverEarns + (itemFunds > 0 ? ` (+ M${itemFunds} for items)` : "");
+                        } else if (oData.fee) {
+                            let rawFee = parseFloat(oData.fee.replace(/[^\d.]/g, '')) || 0;
+                            oData.fee = "M" + Math.floor(rawFee * 0.94); 
+                        }
+                        incomingOrders.push({ id: d.id, ...oData });
+                    });
+                    
+                    updateQueue(incomingOrders); 
+
+                    if (incomingOrders.length === 0) {
+                        document.getElementById('pending-container').innerHTML = emptyPendingHtml;
+                    }
+
+                    if (hasDelayedOrders && !refreshInterval) {
+                        refreshInterval = setInterval(processQueue, 5000);
+                    } else if (!hasDelayedOrders && refreshInterval) {
+                        clearInterval(refreshInterval);
+                        refreshInterval = null;
+                    }
+                };
+
+                processQueue(); 
+            });
+        } 
+
+        let activeUnsubscribe = null;
+
+        function startActiveOrdersListener() {
+            if (activeUnsubscribe) activeUnsubscribe();
+            const q = query(collection(db, "orders"), where("status", "==", "Accepted"), where("driverId", "==", window.currentDriverId));
+            activeUnsubscribe = onSnapshot(q, (snap) => {
+                const cont = document.getElementById('active-container');
+                let isAnyoneCalling = false;
+                let callingOrderId = null;
+                let newHtml = '';
+                let hasActiveOrders = false;
+
+                snap.forEach(d => {
+                    hasActiveOrders = true;
+                    const o = d.data();
+                    
+                    startTracking(d.id, db); 
+                    
+                   if (o.incomingCall === 'CallEnded') {
+                        endCall(); 
+                    }
+
+                    if (o.incomingCall === 'CustomerCalling') {
+                        isAnyoneCalling = true;
+                        callingOrderId = d.id;
+                    }
+
+                    let itemFunds = o.itemFunds ? parseFloat(o.itemFunds) : 0;
+                    let tipAmount = o.tipAmount ? parseFloat(o.tipAmount) : 0;
+                    let displayFee = o.fee || 'M0';
+
+                    if (o.baseDeliveryFee) {
+                        let base = parseFloat(o.baseDeliveryFee.replace(/[^\d.]/g, '')) || 0;
+                        let adminCut = Math.ceil(base * 0.01);
+                        let driverEarns = Math.floor(base * 0.95) + tipAmount - adminCut;
+                        displayFee = "M" + driverEarns + ` <span style="font-size: 13px; color: #8c929c; font-weight: 600;">Earned</span>`;
+                    } else if (o.fee) {
+                        let rawFee = parseFloat(o.fee.replace(/[^\d.]/g, '')) || 0;
+                        displayFee = "M" + Math.floor(rawFee * 0.94);
+                    }
+
+                    let fundsWarningHtml = '';
+                    if (itemFunds > 0) {
+                        fundsWarningHtml = `
+                        <div style="background: #fffbeb; color: #d97706; border: 1px solid #fcd34d; padding: 12px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+                                FUNDS FOR ITEMS
+                            </div>
+                            <span style="font-size: 18px;">M${itemFunds}</span>
+                        </div>`;
+                    }
+
+                    let mapLink = 'javascript:void(0)';
+                    if (o.mapPin) mapLink = o.mapPin;
+                    else if (o.dropoff) mapLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.dropoff)}`;
+
+                    let extraInfo = '';
+                    extraInfo += `<span style="background: #e85d21; color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; display: inline-block; margin-bottom: 8px;">
+                    ${o.vehicle || 'Bike'}
+                    </span>`;
+
+                    if (o.items && o.items.length > 0) {
+                        let itemsText = o.items.map(item => `1x ${item.name}`).join(' • ');
+                        extraInfo += `<div class="info-row"><svg class="svg-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path><line x1="3" y1="6" x2="21" y2="6"></line><path d="M16 10a4 4 0 0 1-8 0"></path></svg> <span><strong style="color: #111827;">Order:</strong> ${itemsText}</span></div>`;
+                    }
+
+                    if (o.desc && o.desc.trim() !== "") {
+                        extraInfo += `<div class="info-row"><svg class="svg-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> <span>${o.desc}</span></div>`;
+                    }
+                    if (o.voiceNote && o.voiceNote !== "") {
+                        extraInfo += `
+                        <div class="info-row" style="margin-top: 15px; flex-direction: column; align-items: flex-start; gap: 8px;">
+                            <div style="font-size: 11px; font-weight: 700; color: #51b882; display: flex; align-items: center; gap: 6px;">
+                                <svg class="svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                                CUSTOMER VOICE NOTE
+                            </div>
+                            <audio controls src="${o.voiceNote}" type="audio/webm" preload="auto" style="width: 100%; height: 45px; z-index: 10; position: relative;"></audio>
+                        </div>`;
+                    }
+                    const infoBoxHtml = extraInfo ? `<div class="info-box" style="margin-top: 15px;">${extraInfo}</div>` : '';
+
+                    newHtml += `
+                    <div class="order-card">
+                        <div class="card-top">
+                            <div class="price">${displayFee}</div>
+                            <div class="status-pill status-active">IN PROGRESS</div>
+                        </div>
+                        ${fundsWarningHtml}
+                        <div class="timeline">
+                            <div class="t-line"></div>
+                            <div class="step"><div class="marker-pickup"></div><div class="label">PICKUP</div><div class="val">${o.pickup || 'N/A'}</div></div>
+                            <div class="step"><div class="marker-dropoff"></div><div class="label">DROPOFF</div><div class="val">${o.dropoff || 'Location in Map Pin'}</div></div>
+                        </div>
+                        ${infoBoxHtml}
+                        <div class="btn-row" style="margin-top: 15px;">
+                            <a href="${mapLink}" target="_blank" class="btn-outline"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg> Navigate</a>
+                            <button class="btn-outline" onclick="openChatModal('${d.id}')"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg> Chat & Call</button>
+                        </div>
+                        <button class="btn-complete" onclick="verifyPinAndComplete('${d.id}')">Complete Delivery (Requires PIN)</button>
+                    </div>`;
+                });
+
+                if (!hasActiveOrders) {
+                    cont.innerHTML = emptyActiveHtml;
+                } else {
+                    if (cont.innerHTML !== newHtml) cont.innerHTML = newHtml;
+                }
+
+                if (isAnyoneCalling) {
+                    window.incomingCallOrderId = callingOrderId;
+                    document.getElementById('incoming-call-banner').style.display = 'block';
+                } else {
+                    window.incomingCallOrderId = null;
+                    document.getElementById('incoming-call-banner').style.display = 'none';
+                }
+            });
+        }
+
+        window.startCall = async () => {
+            const orderId = window.activeChatOrderId;
+            if (!orderId) return alert("No active order.");
+            
+            try {
+                const orderSnap = await getDoc(doc(db, "orders", orderId));
+                if (orderSnap.exists()) {
+                    const customerToken = orderSnap.data().fcmToken;
+                    ringCustomerPhone(customerToken, orderId); 
+                }
+                
+                await updateDoc(doc(db, "orders", orderId), { incomingCall: 'DriverCalling' });
+                joinCallRoom(orderId, window.currentDriverId);
+            } catch (error) {
+                console.error("Call error:", error);
+                alert("Failed to start call.");
+            }
+        };
+
+        // 🌟 NEW: FIREBASE-POWERED SECURE CELLULAR PBX CALL FOR DRIVERS
+        window.triggerCellularCall = async () => {
+            const orderId = window.activeChatOrderId || window.incomingCallOrderId; 
+            
+            if (!orderId) {
+                return window.showToast ? window.showToast("No active order found.") : alert("No active order found.");
+            }
+
+            if (window.showToast) window.showToast("Connecting secure call...");
+
+            try {
+                // 1. Fetch Order Data
+                const orderRef = doc(db, "orders", orderId);
+                const orderSnap = await getDoc(orderRef);
+                
+                if (!orderSnap.exists()) throw new Error("Order not found.");
+                const orderData = orderSnap.data();
+                
+                const customerPhone = orderData.phone;
+                
+                // 2. Fetch Current Driver's Phone Number
+                if (!window.currentDriverId) throw new Error("Driver session not found.");
+                const driverRef = doc(db, "drivers", window.currentDriverId);
+                const driverSnap = await getDoc(driverRef);
+                
+                if (!driverSnap.exists()) throw new Error("Driver profile not found.");
+                const driverPhone = driverSnap.data().phoneNumber;
+
+                if (!customerPhone) throw new Error("Customer phone number is missing.");
+                if (!driverPhone) throw new Error("Your profile phone number is missing.");
+
+                // 3. Fetch the Obfuscated PBX Credentials from Firestore
+                const configRef = doc(db, "system_config", "telecom");
+                const configSnap = await getDoc(configRef);
+                
+                if (!configSnap.exists()) throw new Error("Telecom configuration missing in database.");
+                
+                const encUser = configSnap.data().api_user; 
+                const encPass = configSnap.data().api_pass; 
+                
+                // Decode them securely in memory using atob()
+                const apiUser = atob(encUser);
+                const apiPass = atob(encPass);
+
+                // 4. Construct the Direct Vodacom URL
+                // Note: As the driver initiated, we swap so the PBX rings the DRIVER (snumber) first!
+                const vodacomUrl = `https://portal-vodapbx.vodacom.co.ls/api/json/calls/make/?auth_username=${encodeURIComponent(apiUser)}&auth_password=${encodeURIComponent(apiPass)}&snumber=${driverPhone}&cnumber=${customerPhone}&callerid1=52031200&callerid2=52031200`;
+
+                // 5. Fire the request directly from the driver's phone
+                await fetch(vodacomUrl, { method: 'GET', mode: 'no-cors' });
+
+                if (window.showToast) {
+                    window.showToast("Call initiated! Your phone will ring shortly.");
+                }
+
+            } catch (error) {
+                console.error("Cellular Call Error:", error);
+                if (window.showToast) {
+                    window.showToast("Call Failed: " + error.message);
+                } else {
+                    alert("Call Failed: " + error.message);
+                }
+            }
+        };
+
+        window.answerCall = () => {
+            document.getElementById('incoming-call-banner').style.display = 'none';
+            const orderId = window.incomingCallOrderId;
+            if (!orderId) return;
+            
+            updateDoc(doc(db, "orders", orderId), { incomingCall: false });
+            joinCallRoom(orderId, window.currentDriverId);
+        };
+
+        window.dismissCall = () => {
+            document.getElementById('incoming-call-banner').style.display = 'none';
+            const orderId = window.incomingCallOrderId;
+            if (orderId) updateDoc(doc(db, "orders", orderId), { incomingCall: false });
+        };
+
+        window.endCall = async () => {
+            const orderId = window.activeChatOrderId || window.incomingCallOrderId;
+            if (orderId) {
+                await updateDoc(doc(db, "orders", orderId), { incomingCall: 'CallEnded' });
+            }
+            endCall();
+        };
+
+        const MY_ROLE = "Driver"; 
+
+        window.openChatModal = (orderId) => {
+            window.activeChatOrderId = orderId;
+            document.getElementById('chat-modal').style.display = 'block';
+            
+            setupChatSystem(db, storage, orderId, MY_ROLE, "chat-container-module", async (text) => {
+                try {
+                    const orderDoc = await getDoc(doc(db, "orders", orderId));
+                    if (orderDoc.exists() && orderDoc.data().fcmToken) {
+                        await sendAWSNotification(
+                            orderDoc.data().fcmToken, 
+                            "💬 Driver Message", 
+                            text, 
+                            orderId
+                        );
+                    }
+                } catch (err) {
+                    console.error("Failed to notify customer:", err);
+                }
+            });
+        };
+
+        window.closeChatModal = () => {
+            document.getElementById('chat-modal').style.display = 'none';
+            stopChatListener();
+            window.activeChatOrderId = null;
+            document.getElementById('chat-container-module').innerHTML = '';
+        };
+
+        let deferredPrompt;
+        const installBtn = document.getElementById('installAppBtn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBtn.style.display = 'block';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`Driver responded to prompt with: ${outcome}`);
+            deferredPrompt = null;
+            installBtn.style.display = 'none';
+        });
+
+        window.requestWithdrawal = async () => {
+            if (!window.currentDriverId) {
+                window.showToast("You must be logged in to withdraw funds.");
+                return;
+            }
+
+            const withdrawBtn = document.getElementById('withdraw-btn');
+            withdrawBtn.disabled = true;
+            withdrawBtn.innerText = "Processing...";
+
+            try {
+                const awsApiUrl = "https://u9o1zxrb58.execute-api.eu-north-1.amazonaws.com/default/ctobopenaip";
+
+                const response = await fetch(awsApiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverId: window.currentDriverId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(`Success! M${data.amount} has been sent to your M-Pesa account. \nRef: ${data.ref}`);
+                } else {
+                    window.showToast("Withdrawal Failed: " + (data.error || "Unknown error"));
+                    console.error("M-Pesa Error Details:", data.details);
+                }
+            } catch (error) {
+                window.showToast("Network Error. Please try again.");
+                console.error(error);
+            } finally {
+                withdrawBtn.disabled = false;
+                withdrawBtn.innerText = "Withdraw Earnings";
+            }
+        };
+
+    </script>
+</body>
+</html>
+

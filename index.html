@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fleet Driver Portal</title>
+    
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    
+    <link rel="manifest" href="driver-manifest.json?v=3">
+    <meta name="theme-color" content="#51b882">
+    <link rel="apple-touch-icon" href="logo.png?v=3">
+    <link rel="icon" type="image/png" href="logo.png?v=3">
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        :root { 
+            --mint: #51b882; 
+            --bg: #f4f6fa; 
+            --text: #111827; 
+            --light-text: #6b7280; 
+            --border: #e5e7eb; 
+            --login-blue: #293874; 
+            --link-blue: #3b82f6;
+        }
+        
+        body { font-family: 'Inter', -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--text); padding-bottom: 80px; -webkit-font-smoothing: antialiased; }
+        
+        /* ------------------------------------------------------------------
+           LOGIN SCREEN MATCHING SCREENSHOT
+           ------------------------------------------------------------------ */
+        #login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--bg);
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 5000;
+        }
+        .login-card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 24px;
+            width: 90%;
+            max-width: 380px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+            text-align: center;
+        }
+        .login-title {
+            color: var(--login-blue);
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 30px;
+            letter-spacing: -0.5px;
+        }
+        .login-input {
+            width: 100%;
+            padding: 16px;
+            margin-bottom: 16px;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            box-sizing: border-box;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
+            background: white;
+            outline: none;
+            transition: 0.2s;
+        }
+        .login-input:focus {
+            border-color: var(--login-blue);
+            box-shadow: 0 0 0 3px rgba(41, 56, 116, 0.1);
+        }
+        .login-btn-submit {
+            background: var(--login-blue);
+            color: white;
+            width: 100%;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: 0.2s;
+        }
+        .login-btn-submit:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .login-btn-submit:active:not(:disabled) { transform: scale(0.98); }
+        .login-link {
+            margin-top: 24px;
+            color: var(--link-blue);
+            font-weight: 600;
+            font-size: 14px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+        }
+
+        /* ------------------------------------------------------------------
+           DASHBOARD & APP STYLES
+           ------------------------------------------------------------------ */
+        .header { background: white; padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
+        .header-right { display: flex; align-items: center; gap: 12px; }
+        .status { display: flex; align-items: center; gap: 6px; color: var(--mint); font-size: 13px; font-weight: 600; }
+        .dot { height: 8px; width: 8px; background: var(--mint); border-radius: 50%; }
+        .btn-logout { background: #f0fdf4; border: 1px solid var(--mint); border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 700; cursor: pointer; color: var(--mint); }
+
+        .container { padding: 20px; max-width: 500px; margin: auto; }
+        .section-title { font-size: 13px; font-weight: 800; color: #111827; text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 16px; }
+
+        .order-card { background: white; border-radius: 20px; padding: 24px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #f0f0f0; }
+        .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .price { font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+        .status-pill { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .status-new { background: #fef3c7; color: #d97706; }
+        .status-active { background: #ecfdf5; color: var(--mint); }
+
+        .timeline { position: relative; padding-left: 24px; margin-bottom: 24px; }
+        .t-line { position: absolute; left: 5px; top: 14px; bottom: 14px; width: 2px; background: #e5e7eb; }
+        .step { position: relative; margin-bottom: 20px; }
+        .step:last-child { margin-bottom: 0; }
+        
+        .marker-pickup { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: white; border: 3px solid var(--mint); box-sizing: border-box; }
+        .marker-dropoff { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 3px; background: #ef4444; }
+        .label { font-size: 11px; font-weight: 700; color: #8c929c; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .val { font-size: 15px; font-weight: 600; color: #111827; line-height: 1.4; }
+
+        .info-box { background: #f8f9fa; border-radius: 16px; padding: 16px; margin-bottom: 20px; }
+        .info-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 14px; color: #374151; font-weight: 500; }
+        .info-row:last-child { margin-bottom: 0; }
+        .svg-icon { color: #8c929c; flex-shrink: 0; }
+        
+        audio::-webkit-media-controls-panel { background-color: #f1f5f9; }
+        audio { filter: sepia(20%) saturate(70%) grayscale(1) contrast(90%) invert(10%); border-radius: 8px; }
+
+        .btn-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .btn-outline { flex: 1; background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px 12px; font-size: 14px; font-weight: 600; color: var(--text); text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;}
+        .btn-outline:active { background: #f3f4f6; }
+        
+        .btn-complete { background: #111827; color: white; width: 100%; padding: 18px; border-radius: 12px; font-size: 15px; font-weight: 600; border: none; cursor: pointer; transition: 0.2s;}
+        .btn-complete:active { transform: scale(0.98); }
+
+        .input-field { width: 100%; padding: 16px; margin-bottom: 16px; border-radius: 12px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
+
+        #chat-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        
+        .chat-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 85%; background: #0b141a; border-top-left-radius: 24px; border-top-right-radius: 24px; display: flex; flex-direction: column; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); }
+        .chat-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 16px; background: #0b141a; color: white; border-top-left-radius: 24px; border-top-right-radius: 24px; border-bottom: 1px solid rgba(255,255,255,0.05);}
+        .close-chat { background: none; border: none; font-size: 24px; cursor: pointer; color: white; }
+
+        #chat-box {
+            height: 0 !important;         
+            flex-grow: 1 !important;      
+            border-radius: 0 !important; 
+            margin-bottom: 0 !important;
+        }
+        #chat-container-module > div:last-child {
+            padding: 10px 15px 25px 15px !important; 
+            background: #0b141a !important;          
+        }
+
+        #custom-toast { visibility: hidden; min-width: 250px; background-color: var(--text); color: #fff; text-align: center; border-radius: 12px; padding: 16px; position: fixed; z-index: 5000; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.3s; }
+        #custom-toast.show { visibility: visible; opacity: 1; }
+        
+        .empty-placeholder { text-align: center; padding: 40px 20px; background: white; border-radius: 20px; border: 2px dashed #e5e7eb; margin-bottom: 24px; box-shadow: 0 4px 10px rgba(0,0,0,0.01); }
+        .empty-placeholder p { margin: 0; }
+        .empty-placeholder-title { color: #4b5563; font-size: 15px; font-weight: 700; margin-top: 12px !important; }
+        .empty-placeholder-sub { color: #9ca3af; font-size: 13px; margin-top: 6px !important; }
+
+        @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7); } 70% { box-shadow: 0 0 0 15px rgba(37, 211, 102, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); } }
+    </style>
+</head>
+<body>
+
+    <audio id="meeting-audio" style="display:none;"></audio>
+    <audio id="order-ringtone" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" preload="auto" style="display:none;"></audio>
+
+    <div id="custom-toast"></div>
+
+    <div id="incoming-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:#25D366; color:white; padding:20px; border-radius:16px; z-index:4000; text-align:center; animation: pulse-green 1.5s infinite; box-shadow: 0 10px 25px rgba(37, 211, 102, 0.3);">
+        <h3 style="margin:0 0 15px 0; font-size:18px;">📞 Customer is calling...</h3>
+        <button onclick="answerCall()" style="background:white; color:#25D366; border:none; padding:10px 24px; border-radius:20px; font-weight:800; font-size:15px; cursor:pointer;">Answer</button>
+        <button onclick="dismissCall()" style="background:transparent; color:white; border:2px solid white; padding:8px 24px; border-radius:20px; font-weight:800; font-size:15px; cursor:pointer; margin-left:10px;">Decline</button>
+    </div>
+
+    <div id="active-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:#111827; color:white; padding:15px; border-radius:16px; z-index:4000; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 10px 0; font-size:16px;"> Secure Call Active</h3>
+        <button onclick="endCall()" style="background:#ef4444; color:white; border:none; padding:8px 24px; border-radius:20px; font-weight:800; font-size:14px; cursor:pointer;">End Call</button>
+    </div>
+
+    <div id="login-screen">
+        <div class="login-card">
+            <h1 class="login-title">Driver Portal Login</h1>
+            <input type="email" id="email" class="login-input" placeholder="Driver Email">
+            <input type="password" id="password" class="login-input" placeholder="Password">
+            <button id="login-btn" class="login-btn-submit">Secure Login</button>
+            <button onclick="document.getElementById('login-screen').style.display='none'; document.getElementById('signup-screen').style.display='block';" class="login-link">New Driver? Register here.</button>
+        </div>
+    </div>
+
+    <div id="signup-screen" style="display: none; padding: 40px 20px; max-width: 400px; margin: auto; height: 100vh; overflow-y: auto; padding-bottom: 120px;">
+        <h1 style="font-size: 24px; margin-bottom: 10px; color: #111827; font-weight: 800;">Driver Registration</h1>
+        <p style="font-size: 14px; color: #6b7280; margin-bottom: 20px;">Provide your full details for background verification.</p>
+        
+        <div class="section-title">Personal Details</div>
+        <input type="text" id="reg-name" class="input-field" placeholder="Full Name (as on ID)">
+        <input type="tel" id="reg-phone" class="input-field" placeholder="Phone Number">
+        <input type="text" id="reg-address" class="input-field" placeholder="Physical Home Address">
+        
+        <div class="section-title">Emergency Contact</div>
+        <input type="text" id="reg-kin-name" class="input-field" placeholder="Next of Kin Name">
+        <input type="tel" id="reg-kin-phone" class="input-field" placeholder="Next of Kin Phone">
+
+        <div class="section-title">Vehicle Info</div>
+        <select id="reg-vehicle-type" class="input-field" style="appearance: auto; color: #6b7280;">
+            <option value="" disabled selected>Select Vehicle Type</option>
+            <option value="Car">Car</option>
+            <option value="Motorbike">Motorbike</option>
+            <option value="Bicycle">Bicycle</option>
+            <option value="Walking">Walking</option>
+        </select>
+        <input type="text" id="reg-plate" class="input-field" placeholder="License Plate (If applicable)">
+
+        <div class="section-title">Account Security</div>
+        <input type="email" id="reg-email" class="input-field" placeholder="Email Address">
+        <input type="password" id="reg-password" class="input-field" placeholder="Create Password">
+        
+        <div class="section-title">Verification Documents</div>
+        <label style="display: block; text-align: left; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #374151;">1. Official ID / Passport</label>
+        <input type="file" id="reg-id-photo" class="input-field" accept="image/*" style="padding: 10px;">
+
+        <label style="display: block; text-align: left; font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #374151;">2. Clear Selfie (Face must match ID)</label>
+        <input type="file" id="reg-selfie-photo" class="input-field" accept="image/*" style="padding: 10px; margin-bottom: 20px;">
+        
+        <div id="reg-status" style="font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 10px; display: none;"></div>
+
+        <button id="register-btn" class="login-btn-submit">Submit Registration</button>
+        <button onclick="document.getElementById('signup-screen').style.display='none'; document.getElementById('login-screen').style.display='flex';" style="width: 100%; margin-top: 15px; background: none; border: none; color: #6b7280; cursor: pointer; font-size: 14px;">Back to Login</button>
+    </div>
+
+    <div id="pending-approval-screen" style="display: none; padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="var(--mint)" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <h1 style="font-size: 24px; color: var(--text); font-weight: 800;">Account Under Review</h1>
+        <p style="color: var(--light-text); margin-top: 10px; font-size: 14px; line-height: 1.5;">Your registration has been received. Our admin team is currently reviewing your documents. This page will automatically update once you are approved.</p>
+        <button onclick="logoutFromPending()" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <div id="suspended-screen" style="display: none; padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+        <h1 style="font-size: 24px; color: #ef4444; font-weight: 800;">Account Suspended</h1>
+        <p style="color: var(--light-text); margin-top: 10px; font-size: 14px; line-height: 1.5;">Your account has been suspended by the administration. Please contact support for more details.</p>
+        <button onclick="logoutFromPending()" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <div id="dashboard" style="display: none;">
+        <div class="header">
+            <div id="driver-brand-box" style="display: flex; align-items: center; gap: 10px;">
+                <h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Bofelo Driver</h1>
+            </div>
+            <div class="header-right">
+                <button onclick="document.getElementById('profile-modal').style.display='block'" class="btn-logout">
+                    <span style="display:flex; align-items:center; gap:6px;">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg> Profile
+                    </span>
+                </button>
+                <div class="status"><div class="dot"></div> Online</div>
+            </div>
+        </div>
+        
+        <div class="container">
+            <div class="section-title" style="margin-top: 5px;">Active Deliveries</div>
+            <div id="active-container"></div>
+
+            <div class="section-title">New Requests</div>
+            <div id="pending-container"></div>
+        </div>
+    </div>
+
+    <button id="installAppBtn" style="display: none; position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 16px 32px; background-color: var(--text); color: white; border: none; border-radius: 50px; font-size: 15px; font-weight: bold; box-shadow: 0px 10px 25px rgba(0,0,0,0.3); z-index: 1000; cursor: pointer;">
+        📲 Install Driver App
+    </button>
+
+    <div id="profile-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); z-index: 3000; overflow-y: auto; padding-bottom: 40px;">
+        <div class="header">
+            <h1 style="font-size: 18px; margin: 0; font-weight: 800; color: #111827;">Profile & Analytics</h1>
+            <button onclick="document.getElementById('profile-modal').style.display='none'" style="background: none; border: none; font-size: 28px; line-height: 1; cursor: pointer; color: #6b7280;">×</button>
+        </div>
+        <div class="container">
+            
+            <div id="view-profile"></div>
+
+            <div class="order-card" style="background: linear-gradient(135deg, #111827, #1f2937); color: white; padding: 24px; margin-top: 24px; margin-bottom: 24px; border: none; box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
+                <div class="card-top" style="margin-bottom: 12px;">
+                    <div style="font-size: 13px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">Available to Withdraw</div>
+                    <div class="status-pill" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">M-PESA</div>
+                </div>
+                <div class="price" id="wallet-balance-display" style="margin-bottom: 20px; font-size: 36px; color: #4ade80;">M 0.00</div>
+                <button id="withdraw-btn" class="btn-complete" style="background: white; color: #111827; padding: 14px; font-size: 15px; font-weight: 800; border-radius: 12px; box-shadow: 0 4px 10px rgba(255,255,255,0.1);" onclick="requestWithdrawal()">Withdraw Earnings</button>
+            </div>
+
+            <div style="background: white; padding: 24px; border-radius: 20px; margin-bottom: 20px; border: 1px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.02);">
+                <label style="color: var(--mint); font-weight: 800; font-size: 13px; text-transform: uppercase;">Assigned Fleet / Store</label>
+                <p style="font-size: 13px; color: var(--light-text); margin-bottom: 15px; margin-top: 8px; line-height: 1.5;">Enter a Store ID to exclusively receive orders for that business. Leave blank for standard Bofelo deliveries.</p>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="driver-tag-input" class="input-field" placeholder="e.g. FosoPharmacy" style="margin-bottom: 0; background: #f9fafb;">
+                    <button type="button" onclick="applyDriverTag()" style="background: var(--mint); color: white; border: none; border-radius: 12px; padding: 0 20px; font-weight: 800; cursor: pointer;">Save</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="chat-modal">
+        <div class="chat-container">
+            <div class="chat-header">
+                <span>Chat & Call</span>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div id="dynamic-webcall-container" style="display: flex;"></div>
+                    <div id="dynamic-pbx-container" style="display: flex;"></div>
+                    <button class="close-chat" onclick="closeChatModal()" style="margin-left: 5px; background: none; border: none; font-size: 24px; cursor: pointer; color: white;">×</button>
+                </div>
+            </div>
+            <div id="chat-container-module" style="display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; background: #0b141a;"></div>
+        </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+
+</body>
+</html>
+
