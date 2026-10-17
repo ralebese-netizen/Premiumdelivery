@@ -1,5 +1,10 @@
 {
   "appId": "com.bofelo.driver",
   "appName": "Bofelo Driver",
-  "WWW": "."
+  "webDir": "www",
+  "server": {
+    "url": "https://bofeloh.com/sadriver/pbx.html",
+    "cleartext": false,
+    "allowNavigation": ["*"]
+  }
 }
