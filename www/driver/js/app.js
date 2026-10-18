@@ -8,6 +8,8 @@ import { initCallHandlers, handleIncomingCallState, callState } from "./call-han
 import { initChatModal, openChatModal, closeChatModal } from "./chat-modal.js";
 import { initWithdrawal } from "./withdrawal.js";
 import { initPWA } from "./pwa.js";
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Geolocation } from '@capacitor/geolocation';
 
 // --- Expose globals for external modules ---
 window.showToast = showToast;
@@ -17,6 +19,9 @@ window.closeChatModal = closeChatModal;
 // --- Bootstrap ---
 function bootstrap() {
     console.log('[Driver] Bootstrap running');
+
+    // 🟢 Request native permissions immediately at boot
+    requestNativePermissionsAtBoot();
 
     hideScreen('login-screen');
     hideScreen('dashboard');
@@ -46,6 +51,42 @@ function bootstrap() {
     setupAudioUnlock();
     setupServiceWorkerListener();
     handleIncomingCallFromUrl();
+}
+
+// 🟢 NATIVE PERMISSIONS HANDLER
+async function requestNativePermissionsAtBoot() {
+    // Check if we are actually running in the native Android app
+    if (!window.Capacitor || !window.Capacitor.isNativePlatform()) return;
+
+    try {
+        // 1. Request Push Notifications
+        let permStatus = await PushNotifications.checkPermissions();
+        if (permStatus.receive === 'prompt') {
+            permStatus = await PushNotifications.requestPermissions();
+        }
+        
+        if (permStatus.receive === 'granted') {
+            await PushNotifications.register();
+        }
+
+        // 2. Request Location
+        const locStatus = await Geolocation.checkPermissions();
+        if (locStatus.location === 'prompt') {
+            await Geolocation.requestPermissions();
+        }
+    } catch (e) {
+        console.warn('[Native Boot] Permission error:', e);
+    }
+}
+
+// Listen for the native push token from the Capacitor plugin
+if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+    PushNotifications.addListener('registration', async (token) => {
+        console.log('Native Push Token received via plugin:', token.value);
+        if (window.receiveNativeFcmToken) {
+            window.receiveNativeFcmToken(token.value);
+        }
+    });
 }
 
 // 🟢 LISTEN FOR THE NATIVE ANDROID TOKEN
