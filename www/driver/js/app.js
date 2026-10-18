@@ -8,6 +8,7 @@ import { initCallHandlers, handleIncomingCallState, callState } from "./call-han
 import { initChatModal, openChatModal, closeChatModal } from "./chat-modal.js";
 import { initWithdrawal } from "./withdrawal.js";
 import { initPWA } from "./pwa.js";
+import { requestNotificationPermissionAndToken, storeTokenInFirestore } from "./notificationManager.js";
 
 // --- Expose globals for external modules ---
 window.showToast = showToast;
@@ -48,6 +49,50 @@ function bootstrap() {
     handleIncomingCallFromUrl();
 }
 
+// 🟢 POST-LOGIN PERMISSIONS & HARDWARE PROMPTS
+// Automatically triggers notification and location popups once the driver logs in
+async function handlePostLoginPermissions(userId) {
+    if (!userId) return;
+    console.log('[Driver] Triggering post-login hardware permissions for user:', userId);
+
+    // 1. Request Notification Permission & FCM Token
+    try {
+        const { messaging, db } = await import("./firebase-init.js");
+        if (messaging) {
+            const { token, error } = await requestNotificationPermissionAndToken(messaging);
+            if (token) {
+                console.log('[Driver] FCM Token acquired successfully on login');
+                window.currentDriverToken = token;
+                await storeTokenInFirestore(db, userId, token);
+            } else {
+                console.warn('[Driver] Notification permission not granted or failed:', error);
+            }
+        }
+    } catch (e) {
+        console.warn('[Driver] Notification permission flow error:', e.message);
+    }
+
+    // 2. Request Location Permission (triggers Android GPS prompt)
+    try {
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    console.log('[Driver] Location permission granted:', position.coords);
+                },
+                (error) => {
+                    console.warn('[Driver] Location permission denied or error:', error.message);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+    } catch (e) {
+        console.warn('[Driver] Geolocation request threw:', e.message);
+    }
+}
+
+// Expose globally so auth-flow or dashboard loader can trigger it once `window.currentDriverId` is set
+window.handlePostLoginPermissions = handlePostLoginPermissions;
+
 // 🟢 LISTEN FOR THE NATIVE ANDROID TOKEN
 window.receiveNativeFcmToken = async (token) => {
     console.log('Received Native FCM Token from Android:', token);
@@ -70,6 +115,9 @@ window.syncNativeTokenToFirestore = async () => {
     }, { merge: true });
     
     console.log('Native token synced to Firestore for driver:', window.currentDriverId);
+
+    // Trigger post-login permission sequence once ID and token sync are active
+    handlePostLoginPermissions(window.currentDriverId);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
