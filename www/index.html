@@ -1,1 +1,37 @@
-<html><body></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bofelo Driver</title>
+    <script type="module">
+      (async function () {
+          if (!window.Capacitor || !window.Capacitor.isNativePlatform()) return;
+          try {
+              const { PushNotifications } = await import('@capacitor/push-notifications');
+              let perm = await PushNotifications.checkPermissions();
+              if (perm.receive !== 'granted') {
+                  perm = await PushNotifications.requestPermissions();
+              }
+              if (perm.receive === 'granted') {
+                  await PushNotifications.register();
+                  PushNotifications.addListener('registration', (token) => {
+                      localStorage.setItem('nativeFcmToken', token.value);
+                  });
+              }
+              const { Geolocation } = await import('@capacitor/geolocation');
+              let gps = await Geolocation.checkPermissions();
+              if (gps.location !== 'granted') {
+                  await Geolocation.requestPermissions();
+              }
+          } catch (e) {
+              console.error(e);
+          }
+      })();
+    </script>
+</head>
+<body>
+    <div id="app"></div>
+    <script type="module" src="./app.js"></script>
+</body>
+</html>
