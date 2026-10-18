@@ -4,6 +4,8 @@ import com.getcapacitor.BridgeActivity;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebChromeClient;
+import android.webkit.GeolocationPermissions;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -20,6 +22,13 @@ public class MainActivity extends BridgeActivity {
             settings.setAllowFileAccess(true);
             settings.setAllowContentAccess(true);
             settings.setBlockNetworkLoads(false);
+
+            webView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                    callback.invoke(origin, true, false);
+                }
+            });
         }
     }
 }
