@@ -8,6 +8,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.PermissionRequest;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -30,30 +31,33 @@ public class MainActivity extends BridgeActivity {
 
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        request.grant(request.getResources());
-                    }
-                });
+                runOnUiThread(() -> request.grant(request.getResources()));
             }
         });
 
-        // 🟢 THE FIX: Inject the fake Notification API exactly when the page finishes loading
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 
+                // 1. Inject the fake Notification object so your web code doesn't crash
                 String injection = 
                     "if (typeof Notification === 'undefined') {" +
                     "  window.Notification = function(title, options) {};" +
                     "  window.Notification.permission = 'granted';" +
                     "  window.Notification.requestPermission = function() { return Promise.resolve('granted'); };" +
-                    "  console.log('Native Notification API Injected Successfully');" +
                     "}";
-                
                 view.evaluateJavascript(injection, null);
+
+                // 2. Fetch the Native FCM Token and send it to the website after a 2-second delay
+                FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+                    if (task.isSuccessful() && task.getResult() != null) {
+                        String token = task.getResult();
+                        view.postDelayed(() -> {
+                            view.evaluateJavascript("if(window.receiveNativeFcmToken) window.receiveNativeFcmToken('" + token + "');", null);
+                        }, 2000); 
+                    }
+                });
             }
         });
     }
