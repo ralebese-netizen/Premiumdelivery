@@ -8,8 +8,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.PermissionRequest;
-import android.webkit.SslErrorHandler;
-import android.net.http.SslError;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends BridgeActivity {
@@ -25,11 +23,12 @@ public class MainActivity extends BridgeActivity {
         settings.setDatabaseEnabled(true);
         settings.setGeolocationEnabled(true);
         
-        // 🟢 FORCE ALLOW LOADING (Fixes the stuck loading screen)
+        // 🟢 ALLOW EVERYTHING (Fixes Firebase connection blocks)
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setBlockNetworkLoads(false);
         
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -44,26 +43,26 @@ public class MainActivity extends BridgeActivity {
         });
 
         webView.setWebViewClient(new WebViewClient() {
-            // 🟢 FIX: Ignore SSL errors on redirects (common in Capacitor)
-            @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.proceed(); 
-            }
-
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 
-                // 1. Inject the fake Notification object
+                // Inject fake Notification API
                 String injection = 
                     "if (typeof Notification === 'undefined') {" +
                     "  window.Notification = function(title, options) {};" +
                     "  window.Notification.permission = 'granted';" +
                     "  window.Notification.requestPermission = function() { return Promise.resolve('granted'); };" +
-                    "}";
+                    "}" +
+                    // 🟢 ADD A HIDDEN ERROR CATCHER
+                    "window.onerror = function(msg, url, line, col, error) {" +
+                    "  alert('CRASH: ' + msg + '\\nLine: ' + line);" +
+                    "  return false;" +
+                    "};";
+                
                 view.evaluateJavascript(injection, null);
 
-                // 2. Fetch the Native FCM Token
+                // Fetch the Native FCM Token
                 FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
                     if (task.isSuccessful() && task.getResult() != null) {
                         String token = task.getResult();
