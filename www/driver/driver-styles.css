@@ -7,12 +7,14 @@
     --primary: #e85d21;
     --primary-hover: #cc501b;
     --primary-light: #fff5f0;
+
     --dark: #000000;
     --bg-main: #f9fafb;
     --surface: #ffffff;
     --text-main: #111827;
     --text-muted: #6b7280;
     --border: #e5e7eb;
+
     --success: #10b981;
     --danger: #ef4444;
     --mpesa: #059669;
@@ -30,62 +32,171 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-.app-header, .header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+/* --- HEADER --- */
+.app-header, .header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+
 .header-right { display: flex; align-items: center; gap: 12px; }
 .status { display: flex; align-items: center; gap: 6px; color: var(--primary); font-size: 13px; font-weight: 600; }
 .dot { height: 8px; width: 8px; background: var(--primary); border-radius: 50%; }
 .btn-logout { background: var(--primary-light); border: 1px solid var(--primary); border-radius: 50%; padding: 8px; cursor: pointer; color: var(--primary); display: flex; align-items: center; justify-content: center; }
+
+/* --- CONTAINERS & CARDS --- */
 .container { padding: 16px; max-width: 600px; margin: auto; }
-.card, .order-card { background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+.card, .order-card {
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+}
+
 .section-title { font-size: 14px; font-weight: 700; color: var(--dark); text-transform: uppercase; letter-spacing: 0.5px; margin: 24px 0 12px; display: flex; align-items: center; gap: 8px; }
+
+/* --- INPUTS --- */
 label { display: block; font-weight: 600; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-.input-field, .login-input { width: 100%; padding: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-sizing: border-box; font-size: 14px; font-weight: 500; margin-bottom: 16px; font-family: inherit; color: var(--dark); transition: 0.2s ease; appearance: none; outline: none; }
+.input-field, .login-input {
+    width: 100%;
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-sizing: border-box;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 16px;
+    font-family: inherit;
+    color: var(--dark);
+    transition: 0.2s ease;
+    appearance: none;
+    outline: none;
+}
 .input-field::placeholder, .login-input::placeholder { color: #9ca3af; font-weight: 400; }
 .input-field:focus, .login-input:focus { border-color: var(--dark); box-shadow: 0 0 0 1px var(--dark); }
-.pay-btn, .login-btn-submit, .btn-complete { background: var(--dark); color: white; width: 100%; padding: 14px 24px; border-radius: 8px; font-weight: 600; font-size: 15px; border: none; cursor: pointer; transition: 0.2s; display: block; text-align: center; }
+
+/* --- BUTTONS --- */
+.pay-btn, .login-btn-submit, .btn-complete {
+    background: var(--dark); color: white; width: 100%; padding: 14px 24px;
+    border-radius: 8px; font-weight: 600; font-size: 15px;
+    border: none; cursor: pointer; transition: 0.2s; display: block; text-align: center;
+}
 .pay-btn:active, .login-btn-submit:active, .btn-complete:active { transform: scale(0.98); background: #1a1a1a; }
+
 .btn-outline { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 14px; font-weight: 600; color: var(--text-main); text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; transition: 0.2s;}
 .btn-outline:active { background: #f3f4f6; }
 .btn-row { display: flex; gap: 10px; margin-bottom: 16px; }
+
+/* --- LOGIN SCREEN --- */
+/* 🟢 FIX: hidden by default so it never flashes before auth resolves.
+   The boot splash covers the screen until we know the auth state. */
 #login-screen { display: none; align-items: center; justify-content: center; min-height: 100vh; background-color: var(--bg-main); position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 5000; }
 .login-card { background: var(--surface); border-radius: 16px; padding: 40px 24px; width: 90%; max-width: 380px; box-shadow: 0 10px 30px rgba(0,0,0,0.04); border: 1px solid var(--border); text-align: center; }
 .login-title { color: var(--dark); font-size: 24px; font-weight: 800; margin-bottom: 30px; letter-spacing: -0.5px; }
 .login-link { margin-top: 24px; color: var(--link-blue); font-weight: 600; font-size: 14px; background: none; border: none; cursor: pointer; display: inline-block; }
-.forgot-link { display: block; width: 100%; text-align: right; background: none; border: none; color: var(--link-blue); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0 4px; margin-top: -8px; margin-bottom: 18px; font-family: inherit; letter-spacing: -0.1px; transition: color 0.15s ease; }
-.forgot-link:hover { color: var(--primary); text-decoration: underline; }
-.forgot-link:active { opacity: 0.7; }
+
+/* ─────────────────────────────────────────────────────────────
+   Forgot Password — right-aligned link under the password field.
+   Sits between the password input and the "Secure Login" button.
+   Uses the same --link-blue as other links; hover shifts to the
+   primary orange for a subtle brand cue.
+   ───────────────────────────────────────────────────────────── */
+.forgot-link {
+    display: block;
+    width: 100%;
+    text-align: right;
+    background: none;
+    border: none;
+    color: var(--link-blue);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 4px;
+    margin-top: -8px;       /* pull up to sit right under the password field */
+    margin-bottom: 18px;    /* breathing room before "Secure Login" */
+    font-family: inherit;
+    letter-spacing: -0.1px;
+    transition: color 0.15s ease;
+}
+
+.forgot-link:hover {
+    color: var(--primary);
+    text-decoration: underline;
+}
+
+.forgot-link:active {
+    opacity: 0.7;
+}
+
+/* --- DRIVER UI ELEMENTS --- */
 .card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .price { font-size: 24px; font-weight: 800; letter-spacing: -1px; color: var(--dark); }
 .status-pill { padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 .status-new { background: #fef3c7; color: #d97706; }
 .status-active { background: var(--primary-light); color: var(--primary); border: 1px solid rgba(232, 93, 33, 0.2); }
 .status-vip { background: #fee2e2; color: #ef4444; border: 1px solid #f87171; }
+
 .timeline { position: relative; padding-left: 24px; margin-bottom: 24px; }
 .t-line { position: absolute; left: 5px; top: 14px; bottom: 14px; width: 2px; background: var(--border); }
 .step { position: relative; margin-bottom: 20px; }
 .step:last-child { margin-bottom: 0; }
+
 .marker-pickup { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: white; border: 3px solid var(--dark); box-sizing: border-box; }
 .marker-dropoff { position: absolute; left: -24px; top: 2px; width: 12px; height: 12px; border-radius: 3px; background: var(--primary); }
 .label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
 .val { font-size: 14px; font-weight: 600; color: var(--text-main); line-height: 1.4; }
+
 .info-box { background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
 .info-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 13px; color: var(--text-main); font-weight: 500; }
 .info-row:last-child { margin-bottom: 0; }
 .svg-icon { color: var(--text-muted); flex-shrink: 0; }
+
+/* --- MODALS & CHAT --- */
 #chat-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(3px); z-index: 1000; }
 .chat-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 85%; background: var(--bg-main); border-top-left-radius: 16px; border-top-right-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 -5px 20px rgba(0,0,0,0.1); border-top: 1px solid var(--border); }
 .chat-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 15px; background: var(--surface); color: var(--dark); border-top-left-radius: 16px; border-top-right-radius: 16px; border-bottom: 1px solid var(--border); }
-.close-chat { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-muted); padding-left: 8px; line-height: 1; }
+.close-chat { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-muted); padding-left: 8px; line-height: 1;}
+
 #chat-box { height: 0 !important; flex-grow: 1 !important; border-radius: 0 !important; margin-bottom: 0 !important; }
 #chat-container-module > div:last-child { padding: 10px 15px 25px 15px !important; background: var(--bg-main) !important; }
-#custom-toast { visibility: hidden; min-width: 220px; background-color: var(--dark); color: #fff; text-align: center; border-radius: 8px; padding: 12px 16px; position: fixed; z-index: 9999; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 13px; font-weight: 500; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+
+/* --- TOAST & NOTIFICATIONS --- */
+#custom-toast { visibility: hidden; min-width: 220px; background-color: var(--dark); color: #fff; text-align: center; border-radius: 8px; padding: 12px 16px; position: fixed; z-index: 9999; left: 50%; bottom: 100px; transform: translateX(-50%); font-size: 13px; font-weight: 500; opacity: 0; transition: opacity 0.3s; box-shadow: 0 4px 12px rgba(0,0,0,0.15);}
 #custom-toast.show { visibility: visible; opacity: 1; }
+
 .empty-placeholder { text-align: center; padding: 40px 20px; background: var(--surface); border-radius: 12px; border: 1px dashed var(--border); margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
 .empty-placeholder p { margin: 0; }
 .empty-placeholder-title { color: var(--dark); font-size: 14px; font-weight: 700; margin-top: 12px !important; }
 .empty-placeholder-sub { color: var(--text-muted); font-size: 12px; margin-top: 6px !important; }
+
 @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3); } 70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); } 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); } }
+
+/* 🟢 Boot splash spinner */
 @keyframes spin { 100% { transform: rotate(360deg); } }
+
 audio::-webkit-media-controls-panel { background-color: var(--border); }
 audio { filter: sepia(20%) saturate(70%) grayscale(1) contrast(90%) invert(10%); border-radius: 8px; }
-.vehicle-badge { display: inline-block; background: #f3f4f6; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; color: #1f2937; margin-bottom: 12px; }
+
+/* Vehicle badge */
+.vehicle-badge {
+    display: inline-block;
+    background: #f3f4f6;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 12px;
+}
