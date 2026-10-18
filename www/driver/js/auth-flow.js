@@ -135,11 +135,6 @@ async function handleLoggedIn(user, onCallStateChange) {
         window.syncNativeTokenToFirestore();
     }
 
-    // 🟢 Trigger native post-login hardware permission prompts (Notifications & Location)
-    if (typeof window.handlePostLoginPermissions === 'function') {
-        window.handlePostLoginPermissions(user.uid);
-    }
-
     ProfileManager.init(db, user.uid, "driver");
     ProfileManager.logoutHook = async () => {
         if (confirm("Are you sure you want to log out?")) logoutDriver();
