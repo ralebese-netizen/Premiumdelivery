@@ -1,150 +1,115 @@
 // notificationManager.js
-// Transport layer for push notifications.
+// Unified Firebase Cloud Messaging & AWS Notification helper
 
 import { getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js";
 
+//  Replace with your actual Firebase VAPID key from Project Settings > Cloud Messaging
 const VAPID_KEY = 'BJjRi0UCeIH3J2CYmiti-zMtJK4vicKrD1CHzVWke9uMNJKzNyK3bMrYN_Lxy8-g0yR47Ta4rXUT6xXUV9k95Yc';
-const LAMBDA_URL = "https://hem2omj47a.execute-api.eu-north-1.amazonaws.com/default/driver-call-notification";
 
 /**
- * 🟢 Helper to wait for the existing sw.js to be ready.
- * We do NOT register a new /firebase-messaging-sw.js because your
- * app already registers './sw.js' in pwa.js.
- * 
- * 🟢 CAPACITOR FIX: If running in the native app, return null immediately
- * because the Service Worker is disabled in the app.
- */
-async function getExistingSWRegistration() {
-    if (!('serviceWorker' in navigator)) return null;
-    if (window.Capacitor && window.Capacitor.isNativePlatform()) return null;
-
-    try {
-        return await navigator.serviceWorker.ready;
-    } catch (error) {
-        console.error("[NotificationManager] Service worker not ready:", error);
-        return null;
-    }
-}
-
-/**
- * 🟢 PERMISSION & TOKEN FETCH FUNCTION
- * 
- * Triggers the browser notification prompt and safely fetches the FCM token.
- * Must be called from a direct user click event.
- */
-export async function requestNotificationPermissionAndToken(messaging) {
-    if (!messaging) return { token: "", error: "Messaging not initialized" };
-
-    if (!('Notification' in window) || typeof window.Notification === 'undefined') {
-        return { token: "", error: "unsupported" };
-    }
-
-    try {
-        // 1. Trigger the prompt (If already granted, this resolves instantly)
-        const permission = await window.Notification.requestPermission();
-        
-        if (permission !== 'granted') {
-            return { token: "", error: "denied" };
-        }
-
-        // 2. Ensure the existing sw.js is active
-        const swRegistration = await getExistingSWRegistration();
-        
-        // If we are in Capacitor, we skip the web token generation
-        if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-             return { token: "", error: "native_platform" };
-        }
-
-        if (!swRegistration) {
-            return { token: "", error: "service_worker_failed" };
-        }
-
-        // 3. Fetch the token with a short retry loop
-        let token = "";
-        for (let i = 0; i < 3; i++) {
-            try {
-                token = await getToken(messaging, { 
-                    vapidKey: VAPID_KEY, 
-                    serviceWorkerRegistration: swRegistration 
-                });
-                if (token) break;
-            } catch (err) {
-                console.warn(`[NotificationManager] Token attempt ${i + 1} failed:`, err);
-            }
-            await new Promise(r => setTimeout(r, 1500));
-        }
-
-        if (!token) {
-            return { token: "", error: "failed_to_generate" };
-        }
-
-        return { token, error: null };
-
-    } catch (error) {
-        console.error("[NotificationManager] Error in request flow:", error);
-        return { token: "", error: "exception" };
-    }
-}
-
-/**
- * Retrieves this device's FCM token silently (without prompting).
- * Used during login to check if we already have permission.
+ * Request notification permission and retrieve the device FCM token.
+ * @param {Object} messaging - Firebase Messaging instance
+ * @returns {Promise<string>} FCM token or empty string on failure
  */
 export async function getDeviceToken(messaging) {
-    if (!messaging) return "";
-    
-    if (!('Notification' in window) || typeof window.Notification === 'undefined') return "";
-    if (window.Notification.permission !== 'granted') return "";
-    
-    // If we are in Capacitor, we don't use the web token
-    if (window.Capacitor && window.Capacitor.isNativePlatform()) return "";
-
     try {
-        const swRegistration = await getExistingSWRegistration();
-        if (!swRegistration) return "";
-
-        return await getToken(messaging, { 
-            vapidKey: VAPID_KEY, 
-            serviceWorkerRegistration: swRegistration 
-        });
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            const token = await getToken(messaging, { vapidKey: VAPID_KEY });
+            console.log("FCM Token retrieved:", token);
+            return token;
+        } else {
+            console.warn("Notification permission denied.");
+            return "";
+        }
     } catch (error) {
-        console.warn("[NotificationManager] Silent token fetch failed:", error);
+        console.error("FCM Token error:", error);
         return "";
     }
 }
 
+/**
+ * Store the FCM token in Firestore under a driver's document.
+ * @param {Object} db - Firestore instance
+ * @param {string} userId - Driver UID
+ * @param {string} token - FCM token
+ */
 export async function storeTokenInFirestore(db, userId, token) {
     if (!db || !userId || !token) return;
     try {
         const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js");
-        await setDoc(doc(db, "drivers", userId), { fcmToken: token }, { merge: true });
+        await setDoc(doc(db, "drivers", userId), { fcmToken: token, lastOnline: new Date() }, { merge: true });
+        console.log("Token stored in Firestore");
     } catch (error) {
-        console.error("[NotificationManager] Failed to store token:", error);
+        console.error("Failed to store token in Firestore:", error);
     }
 }
 
+/**
+ * Listen for foreground notifications (when the app is open).
+ * Optionally play a ringtone when a notification arrives.
+ * @param {Object} messaging - Firebase Messaging instance
+ * @param {string|null} ringtoneElementId - ID of an <audio> element to play
+ */
 export function setupForegroundListener(messaging, ringtoneElementId = null) {
-    if (!messaging) return;
     onMessage(messaging, (payload) => {
-        if (ringtoneElementId && typeof window.Notification !== 'undefined' && window.Notification.permission === 'granted') {
-            const ringtone = document.getElementById(ringtoneElementId);
-            if (ringtone) ringtone.play().catch(e => console.log("Audio blocked:", e));
+        console.log('Foreground notification received:', payload);
+
+        if (Notification.permission === 'granted') {
+            // Show a browser notification
+            new Notification(payload.notification.title, {
+                body: payload.notification.body,
+                icon: payload.notification.icon || "logo.png"
+            });
+
+            // Play ringtone if element exists
+            if (ringtoneElementId) {
+                const ringtone = document.getElementById(ringtoneElementId);
+                if (ringtone) {
+                    ringtone.play().catch(e => console.log("Audio autoplay blocked:", e));
+                }
+            }
         }
     });
 }
 
-export async function sendPush({ token, title, body, orderId, kind = 'order' } = {}) {
-    if (!token) return null;
-    const payload = { fcmToken: token, title, body, orderId, kind };
+/**
+ * --- NEW: AWS PUSH NOTIFICATION TRIGGER ---
+ * Triggers your AWS Lambda function to send a push notification.
+ * @param {string} targetToken - The FCM token of the person receiving the notification
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body/message
+ * @param {string} orderId - The active order ID
+ */
+export async function sendAWSNotification(targetToken, title, body, orderId) {
+    if (!targetToken) {
+        console.warn("Cannot send notification: Missing target FCM token.");
+        return null;
+    }
+
+    // 🔥 YOUR AWS API GATEWAY URL IS INJECTED HERE 🔥
+    const awsApiUrl = "https://hem2omj47a.execute-api.eu-north-1.amazonaws.com/default/driver-call-notification"; 
+
+    // This matches the exact variables your Lambda script expects (fcnToken, title, body, orderId)
+    const payload = {
+        fcnToken: targetToken, 
+        title: title,
+        body: body,
+        orderId: orderId || "unknown"
+    };
+
     try {
-        const response = await fetch(LAMBDA_URL, {
+        const response = await fetch(awsApiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
-        return await response.json();
+        
+        const result = await response.json();
+        console.log("AWS Notification Sent:", result);
+        return result;
     } catch (error) {
-        console.error("[NotificationManager] Push failed:", error);
+        console.error("AWS failed to send notification:", error);
         return null;
     }
 }
