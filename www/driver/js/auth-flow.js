@@ -100,17 +100,13 @@ async function handleRegisterClick() {
     );
     
     if (result.success) {
-        // 🟢 THE FIX: Do not go to the login screen!
-        // Firebase automatically logged them in. The `monitorAuthState` 
-        // listener in the background will instantly trigger handleLoggedIn(), 
-        // which shows the splash screen and then routes to the Pending screen.
-        
         hideScreen('signup-screen');
         showToast("Registration successful! Checking status...");
     } else {
         showToast("Registration Failed: " + result.error);
     }
 }
+
 function showSplash(message = 'Loading...') {
     const splash = document.getElementById('boot-splash');
     if (!splash) return;
@@ -125,8 +121,6 @@ function hideSplash() {
 }
 
 async function handleLoggedIn(user, onCallStateChange) {
-    // 🟢 CRITICAL FIX 1: Force a clean slate immediately on boot.
-    // This prevents the browser from showing the previous screen on refresh.
     hideScreen('login-screen');
     hideScreen('dashboard');
     hideScreen('pending-approval-screen');
@@ -138,7 +132,12 @@ async function handleLoggedIn(user, onCallStateChange) {
     
     // 🟢 Sync the Android token to Firestore now that we have the driver ID
     if (window.syncNativeTokenToFirestore) {
-    window.syncNativeTokenToFirestore();
+        window.syncNativeTokenToFirestore();
+    }
+
+    // 🟢 Trigger native post-login hardware permission prompts (Notifications & Location)
+    if (typeof window.handlePostLoginPermissions === 'function') {
+        window.handlePostLoginPermissions(user.uid);
     }
 
     ProfileManager.init(db, user.uid, "driver");
@@ -191,15 +190,10 @@ async function handleLoggedIn(user, onCallStateChange) {
             hideSplash();
         }
 
-        // 🟢 Ignore cache for UI routing to prevent flashing old pending state.
         if (docSnap.metadata.fromCache) {
             return; 
         }
 
-        // 🟢 CRITICAL FIX 2: If the document doesn't exist, DO NOTHING.
-        // Do not use a timer. Just keep the splash screen up and return.
-        // Firestore will fire this snapshot again in a split second once the 
-        // new driver's document finishes writing.
         if (!docSnap.exists()) {
             return;
         }
@@ -215,7 +209,6 @@ async function handleLoggedIn(user, onCallStateChange) {
             return;
         }
 
-        // Status is approved/active
         hideScreen('pending-approval-screen');
         hideScreen('suspended-screen');
         showScreen('dashboard');
@@ -275,8 +268,6 @@ export async function logoutDriver() {
 }
 
 window.enableNotifications = async () => {
-    // 🟢 1. If we are in the Android App, the native layer handles it.
-    // We just hide the banner and exit silently.
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         const banner = document.getElementById('notif-banner');
         if (banner) banner.style.display = 'none';
@@ -284,7 +275,6 @@ window.enableNotifications = async () => {
         return;
     }
 
-    // 🟢 2. Standard Web Logic (for Chrome/Browser)
     if (!('Notification' in window) || typeof window.Notification === 'undefined') {
         return showToast("⚠️ Notifications are not supported in this browser. Try opening in Chrome.");
     }
