@@ -6,6 +6,7 @@ import android.webkit.WebSettings;
 import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
+import android.webkit.PermissionRequest;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -15,20 +16,35 @@ public class MainActivity extends BridgeActivity {
         WebView webView = this.bridge.getWebView();
         WebSettings settings = webView.getSettings();
         
-        // Enable standard web features
         settings.setDomStorageEnabled(true);
         settings.setJavaScriptEnabled(true);
         settings.setDatabaseEnabled(true);
-        
-        // 🟢 Force the WebView to allow and handle GPS requests natively
         settings.setGeolocationEnabled(true);
         
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
-                // Automatically grant GPS permission so your web tracking code works instantly
                 callback.invoke(origin, true, false);
             }
+
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
         });
+
+        // 🟢 THE MAGIC FIX: Inject a fake Notification object so the website thinks it's in Chrome
+        webView.evaluateJavascript(
+            "if (typeof Notification === 'undefined') {" +
+            "  window.Notification = function(title, options) {};" +
+            "  window.Notification.permission = 'granted';" +
+            "  window.Notification.requestPermission = function() { return Promise.resolve('granted'); };" +
+            "}"
+        , null);
     }
 }
