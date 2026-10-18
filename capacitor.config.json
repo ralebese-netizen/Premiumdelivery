@@ -3,7 +3,7 @@
   "appName": "Bofelo Driver",
   "webDir": "www",
   "server": {
-    "url": "https://bofeloh.com/sadriver/pbx.html",
+    "url": "https://bofeloh.com/app/pbx.html",
     "cleartext": false,
     "allowNavigation": ["*"]
   }
