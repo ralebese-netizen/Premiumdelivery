@@ -6,6 +6,7 @@ import android.webkit.WebSettings;
 import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.webkit.PermissionRequest;
 
 public class MainActivity extends BridgeActivity {
@@ -38,13 +39,22 @@ public class MainActivity extends BridgeActivity {
             }
         });
 
-        // 🟢 THE MAGIC FIX: Inject a fake Notification object so the website thinks it's in Chrome
-        webView.evaluateJavascript(
-            "if (typeof Notification === 'undefined') {" +
-            "  window.Notification = function(title, options) {};" +
-            "  window.Notification.permission = 'granted';" +
-            "  window.Notification.requestPermission = function() { return Promise.resolve('granted'); };" +
-            "}"
-        , null);
+        // 🟢 THE FIX: Inject the fake Notification API exactly when the page finishes loading
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                
+                String injection = 
+                    "if (typeof Notification === 'undefined') {" +
+                    "  window.Notification = function(title, options) {};" +
+                    "  window.Notification.permission = 'granted';" +
+                    "  window.Notification.requestPermission = function() { return Promise.resolve('granted'); };" +
+                    "  console.log('Native Notification API Injected Successfully');" +
+                    "}";
+                
+                view.evaluateJavascript(injection, null);
+            }
+        });
     }
 }
