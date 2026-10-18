@@ -4,26 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bofelo Driver</title>
-    <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #ffffff; overflow: hidden; }
-        iframe { width: 100%; height: 100%; border: none; }
-    </style>
-</head>
-<body>
     <script>
-        // Native FCM bridge receiver
         window.receiveNativeFcmToken = function(token) {
             window.nativeFcmToken = token;
-            const iframe = document.getElementById('app-frame');
-            if (iframe && iframe.contentWindow) {
-                iframe.contentWindow.postMessage({ type: 'FCM_TOKEN', token: token }, '*');
-            }
+            localStorage.setItem('nativeFcmToken', token);
         };
-
-        // Fallback redirection or embedded load
         window.addEventListener('DOMContentLoaded', () => {
-            window.location.replace('./app/pbx.html');
+            window.location.replace('./pbx.html');
         });
     </script>
+</head>
+<body>
 </body>
 </html>
