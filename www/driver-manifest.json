@@ -4,10 +4,10 @@
   "description": "Secure driver and fleet management portal for local deliveries.",
   "id": "/fleet-driver-v3",
   "scope": "./",
-  "start_url": "./index.html",
+  "start_url": "./pbx.html",
   "display": "standalone",
-  "background_color": "#f8f9fa",
-  "theme_color": "#51b882",
+  "background_color": "#f9fafb",
+  "theme_color": "#e85d21",
   "orientation": "portrait",
   "icons": [
     {

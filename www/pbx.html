@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fleet Driver Portal</title>
+
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+    <link rel="manifest" href="driver-manifest.json?v=3">
+    <meta name="theme-color" content="#e85d21">
+    <link rel="apple-touch-icon" href="logo.png?v=3">
+    <link rel="icon" type="image/png" href="logo.png?v=3">
+    <link rel="stylesheet" href="driver/driver-styles.css">
+    
+    <!-- 🟢 GLOBAL LOCK: Force all screens to stay hidden on page load -->
+    <style>
+        #login-screen, #dashboard, #pending-approval-screen, #suspended-screen, #signup-screen {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 🟢 Boot splash — covers the screen until Firebase Auth resolves -->
+    <div id="boot-splash" style="position: fixed; inset: 0; background: #f9fafb; display: flex; align-items: center; justify-content: center; z-index: 9999;">
+        <div style="text-align: center;">
+            <svg style="animation: spin 1s linear infinite; margin-bottom: 12px;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#e85d21" stroke-width="2">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+            </svg>
+            <p style="color: #6b7280; font-size: 14px; font-weight: 600; font-family: 'Inter', sans-serif;">Loading...</p>
+        </div>
+    </div>
+
+    <audio id="meeting-audio" style="display:none;"></audio>
+    <audio id="order-ringtone" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3" preload="auto" style="display:none;"></audio>
+
+    <div id="custom-toast"></div>
+
+    <!-- Incoming call banner (shown when customer is calling the driver) -->
+    <div id="incoming-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:var(--success); color:white; padding:20px; border-radius:12px; z-index:4000; text-align:center; animation: pulse-green 1.5s infinite; box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);">
+        <h3 style="margin:0 0 15px 0; font-size:16px; display:flex; align-items:center; justify-content:center; gap:8px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            Customer is calling...
+        </h3>
+        <button id="answer-call-btn" style="background:white; color:var(--success); border:none; padding:10px 24px; border-radius:8px; font-weight:700; font-size:14px; cursor:pointer;">Answer</button>
+        <button id="dismiss-call-btn" style="background:transparent; color:white; border:1px solid white; padding:9px 24px; border-radius:8px; font-weight:700; font-size:14px; cursor:pointer; margin-left:10px;">Decline</button>
+    </div>
+
+    <!-- Active call banner (shown while call is in progress) -->
+    <div id="active-call-banner" style="display:none; position:fixed; top:30px; left:10%; width:80%; box-sizing:border-box; background:var(--dark); color:white; padding:15px; border-radius:12px; z-index:4000; text-align:center; box-shadow: 0 10px 25px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 10px 0; font-size:15px; display:flex; align-items:center; justify-content:center; gap:8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+            Secure Call Active
+        </h3>
+        <button id="end-call-btn" style="background:var(--danger); color:white; border:none; padding:10px 24px; border-radius:8px; font-weight:700; font-size:14px; cursor:pointer;">End Call</button>
+    </div>
+
+    <!-- Login screen -->
+    <div id="login-screen">
+        <div class="login-card">
+            <h1 class="login-title">Driver Portal</h1>
+            <input type="email" id="email" class="login-input" placeholder="Driver Email">
+            <input type="password" id="password" class="login-input" placeholder="Password">
+            <button type="button" id="forgot-password-btn" class="forgot-link">Forgot Password?</button>
+            <button id="login-btn" class="login-btn-submit">Secure Login</button>
+            <button id="show-signup-btn" class="login-link">New Driver? Register here.</button>
+        </div>
+    </div>
+
+    <!-- Signup screen -->
+    <div id="signup-screen" style="padding: 40px 20px; max-width: 400px; margin: auto; height: 100vh; overflow-y: auto; padding-bottom: 120px;">
+        <h1 style="font-size: 24px; margin-bottom: 10px; color: var(--dark); font-weight: 800;">Driver Registration</h1>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">Provide your full details for background verification.</p>
+
+        <div class="section-title">Personal Details</div>
+        <input type="text" id="reg-name" class="input-field" placeholder="Full Name (as on ID)">
+        <input type="tel" id="reg-phone" class="input-field" placeholder="Phone Number">
+        <input type="text" id="reg-address" class="input-field" placeholder="Physical Home Address">
+
+        <div class="section-title">Emergency Contact</div>
+        <input type="text" id="reg-kin-name" class="input-field" placeholder="Next of Kin Name">
+        <input type="tel" id="reg-kin-phone" class="input-field" placeholder="Next of Kin Phone">
+
+        <div class="section-title">Vehicle Info</div>
+        <select id="reg-vehicle-type" class="input-field" style="appearance: auto; color: var(--text-muted);">
+            <option value="" disabled selected>Select Vehicle Type</option>
+            <option value="Car">Car</option>
+            <option value="Motorbike">Motorbike</option>
+            <option value="Bicycle">Bicycle</option>
+            <option value="Walking">Walking</option>
+        </select>
+        <input type="text" id="reg-plate" class="input-field" placeholder="License Plate (If applicable)">
+
+        <div class="section-title">Account Security</div>
+        <input type="email" id="reg-email" class="input-field" placeholder="Email Address">
+        <input type="password" id="reg-password" class="input-field" placeholder="Create Password">
+
+        <div class="section-title">Verification Documents</div>
+        <label>1. Official ID / Passport</label>
+        <input type="file" id="reg-id-photo" class="input-field" accept="image/*" style="padding: 10px;">
+
+        <label>2. Clear Selfie (Face must match ID)</label>
+        <input type="file" id="reg-selfie-photo" class="input-field" accept="image/*" style="padding: 10px; margin-bottom: 20px;">
+
+        <div id="reg-status" style="font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 10px; display: none;"></div>
+
+        <button id="register-btn" class="login-btn-submit">Submit Registration</button>
+        <button id="show-login-btn" style="width: 100%; margin-top: 15px; background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; font-weight: 600;">Back to Login</button>
+    </div>
+
+    <!-- Pending approval screen -->
+    <div id="pending-approval-screen" style="padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <h1 style="font-size: 20px; color: var(--dark); font-weight: 800;">Account Under Review</h1>
+        <p style="color: var(--text-muted); margin-top: 10px; font-size: 13px; line-height: 1.5;">Your registration has been received. Our admin team is currently reviewing your documents. This page will automatically update once you are approved.</p>
+        <button id="logout-pending-btn" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <!-- Suspended screen -->
+    <div id="suspended-screen" style="padding: 60px 20px; text-align: center; max-width: 400px; margin: auto;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" style="margin-bottom: 20px;">
+            <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+        </svg>
+        <h1 style="font-size: 20px; color: var(--danger); font-weight: 800;">Account Suspended</h1>
+        <p style="color: var(--text-muted); margin-top: 10px; font-size: 13px; line-height: 1.5;">Your account has been suspended by the administration. Please contact support for more details.</p>
+        <button id="logout-suspended-btn" class="btn-outline" style="margin-top: 30px; width: 100%;">Log Out</button>
+    </div>
+
+    <!-- Main dashboard -->
+    <div id="dashboard">
+        
+        <!-- 🟢 NEW: Tap to enable notifications banner -->
+        <div id="notif-banner" style="display: none; background: #fee2e2; color: #991b1b; padding: 12px; text-align: center; font-size: 13px; font-weight: 600; border-radius: 8px; margin: 16px 16px 0 16px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.1); align-items: center; justify-content: center; gap: 8px;" onclick="enableNotifications()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            Tap here to enable call notifications
+        </div>
+
+        <div class="header">
+            <div id="driver-brand-box" style="display: flex; align-items: center; gap: 10px;">
+                <h1 style="font-size: 16px; margin: 0; font-weight: 800; color: var(--dark);">Bofelo Driver</h1>
+            </div>
+            <div class="header-right">
+                <button id="open-profile-btn" class="btn-logout" aria-label="Profile" title="Profile">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </button>
+                <div class="status"><div class="dot"></div> Online</div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="section-title" style="margin-top: 5px;">Active Deliveries</div>
+            <div id="active-container"></div>
+
+            <div class="section-title">New Requests</div>
+            <div id="pending-container"></div>
+        </div>
+    </div>
+
+    <!-- Install PWA button -->
+    <button id="installAppBtn" style="display: none; position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 14px 28px; background-color: var(--dark); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; box-shadow: 0px 4px 12px rgba(0,0,0,0.15); z-index: 1000; cursor: pointer;">
+        <span style="display:flex; align-items:center; justify-content:center; gap:8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Install Driver App
+        </span>
+    </button>
+
+    <!-- Profile modal -->
+    <div id="profile-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-main); z-index: 3000; overflow-y: auto; padding-bottom: 40px;">
+        <div class="header">
+            <h1 style="font-size: 16px; margin: 0; font-weight: 800; color: var(--dark);">Profile & Analytics</h1>
+            <button id="close-profile-btn" style="background: none; border: none; font-size: 28px; line-height: 1; cursor: pointer; color: var(--text-muted);">×</button>
+        </div>
+        <div class="container">
+
+            <div id="view-profile"></div>
+
+            <div class="card" style="background: var(--dark); color: white; padding: 24px; margin-top: 24px; margin-bottom: 24px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                <div class="card-top" style="margin-bottom: 12px;">
+                    <div style="font-size: 12px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px;">Available to Withdraw</div>
+                    <div class="status-pill" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">M-PESA</div>
+                </div>
+                <div class="price" id="wallet-balance-display" style="margin-bottom: 20px; font-size: 32px; color: var(--success);">M 0.00</div>
+                <button id="withdraw-btn" class="btn-complete" style="background: white; color: var(--dark); padding: 14px; font-size: 14px; font-weight: 700; border-radius: 8px;">Withdraw Earnings</button>
+            </div>
+
+            <div class="card" style="padding: 20px; margin-bottom: 20px;">
+                <label style="color: var(--primary); font-weight: 800; font-size: 12px; text-transform: uppercase;">Assigned Fleet / Store</label>
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px; margin-top: 8px; line-height: 1.5;">Enter a Store ID to exclusively receive orders for that business. Leave blank for standard deliveries.</p>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="driver-tag-input" class="input-field" placeholder="e.g. FosoPharmacy" style="margin-bottom: 0;">
+                    <button type="button" id="apply-tag-btn" style="background: var(--primary); color: white; border: none; border-radius: 8px; padding: 0 20px; font-size: 13px; font-weight: 700; cursor: pointer;">Save</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Chat modal -->
+    <div id="chat-modal">
+        <div class="chat-container">
+            <div class="chat-header">
+                <span>Chat & Call</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <div id="pbx-call-container"></div>
+                    <button id="start-call-btn" title="In-App Data Call" style="background:var(--dark); color:white; border:none; border-radius:8px; width:36px; height:36px; cursor:pointer; display: flex; align-items: center; justify-content: center;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                    </button>
+                    <button id="close-chat-btn" class="close-chat">×</button>
+                </div>
+            </div>
+            <div id="chat-container-module" style="display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; background: var(--bg-main);"></div>
+        </div>
+    </div>
+
+    <script type="module" src="driver/js/app.js"></script>
+</body>
+</html>

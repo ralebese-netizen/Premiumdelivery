@@ -1,0 +1,159 @@
+// authManager.js
+// Handles Firebase Login, Logout, and Driver Registration (with photo upload).
+
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+import { doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-storage.js";
+
+// 🟢 ADDED: track the active login overlay to prevent ghost overlays on double-tap
+let activeStatusOverlay = null;
+
+// 1. Listen for Login/Logout changes
+export function monitorAuthState(auth, onLoginCallback, onLogoutCallback) {
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            onLoginCallback(user);
+        } else {
+            onLogoutCallback();
+        }
+    });
+}
+
+// 2. Login an existing user (Upgraded with dynamic UI status)
+export async function loginUser(auth, email, password) {
+    // 🟢 ADDED: remove any prior overlay before creating a new one
+    if (activeStatusOverlay && activeStatusOverlay.isConnected) {
+        activeStatusOverlay.remove();
+    }
+
+    // Dynamically create a status overlay so you don't have to touch the main app's HTML/JS
+    const statusOverlay = document.createElement('div');
+    statusOverlay.innerText = "Authenticating...";
+    Object.assign(statusOverlay.style, {
+        position: 'fixed',
+        top: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        backgroundColor: '#333',
+        color: '#fff',
+        padding: '12px 24px',
+        borderRadius: '8px',
+        zIndex: '9999',
+        fontFamily: 'sans-serif',
+        fontSize: '14px',
+        boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+        transition: 'opacity 0.3s ease'
+    });
+    document.body.appendChild(statusOverlay);
+    activeStatusOverlay = statusOverlay;
+
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        
+        // Show success briefly, then remove
+        statusOverlay.innerText = "Login Successful!";
+        statusOverlay.style.backgroundColor = '#28a745'; // Green for success
+        setTimeout(() => {
+            statusOverlay.remove();
+            if (activeStatusOverlay === statusOverlay) activeStatusOverlay = null;
+        }, 1500);
+
+        return { success: true, user: userCredential.user };
+    } catch (error) {
+        console.error("Login failed:", error);
+        
+        // Show error, then remove after 3.5 seconds
+        statusOverlay.innerText = "Login failed: " + error.message;
+        statusOverlay.style.backgroundColor = '#dc3545'; // Red for error
+        setTimeout(() => {
+            statusOverlay.remove();
+            if (activeStatusOverlay === statusOverlay) activeStatusOverlay = null;
+        }, 3500);
+
+        return { success: false, error: error.message };
+    }
+}
+
+// 3. Logout
+export async function logoutUser(auth) {
+    try {
+        await signOut(auth);
+        return { success: true };
+    } catch (error) {
+        console.error("Logout failed:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+// 4. Register a New Driver (Upgraded for TWO Photos)
+export async function registerDriver(auth, db, storage, email, password, driverDetails, idPhotoFile, selfieFile, statusEl) {
+    // 🟢 ADDED: track whether we created an auth user this call, so cleanup is precise
+    let createdAuthUser = false;
+
+    try {
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.innerText = "Creating account...";
+        }
+
+        // A. Create the user account
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        createdAuthUser = true;
+
+        // B. Upload the ID Photo
+        let idPhotoUrl = "";
+        if (idPhotoFile) {
+            if (statusEl) statusEl.innerText = "Uploading ID Photo...";
+            const idRef = ref(storage, `driver_docs/${user.uid}_ID_${idPhotoFile.name}`);
+            await uploadBytes(idRef, idPhotoFile);
+            idPhotoUrl = await getDownloadURL(idRef);
+        }
+
+        // C. Upload the Selfie
+        let selfieUrl = "";
+        if (selfieFile) {
+            if (statusEl) statusEl.innerText = "Uploading Selfie...";
+            const selfieRef = ref(storage, `driver_docs/${user.uid}_Selfie_${selfieFile.name}`);
+            await uploadBytes(selfieRef, selfieFile);
+            selfieUrl = await getDownloadURL(selfieRef);
+        }
+
+        // D. Save ALL Details to Firestore
+        if (statusEl) statusEl.innerText = "Saving profile details...";
+        await setDoc(doc(db, "drivers", user.uid), {
+            ...driverDetails,
+            email: email,
+            documents: { idPhotoUrl: idPhotoUrl, selfieUrl: selfieUrl },
+            isPriority: false, 
+            createdAt: serverTimestamp()
+        });
+
+        if (statusEl) statusEl.style.display = 'none';
+        return { success: true, user: user };
+
+    } catch (error) {
+        console.error("Registration failed:", error);
+
+        // 🟢 ADDED: if we created an auth user but the rest of the flow failed,
+        // delete it so the email isn't orphaned. Otherwise retries hit
+        // auth/email-already-in-use and the driver is permanently locked out.
+        if (createdAuthUser) {
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser && currentUser.email === email) {
+                    await currentUser.delete();
+                    console.log("[Auth] Cleaned up orphaned auth user:", email);
+                }
+            } catch (cleanupErr) {
+                console.error("[Auth] Could not clean up orphaned user:", cleanupErr);
+            }
+        }
+
+        if (statusEl) {
+            statusEl.innerText = "Error: " + error.message;
+            setTimeout(() => statusEl.style.display = 'none', 4000);
+        }
+        return { success: false, error: error.message };
+    }
+}

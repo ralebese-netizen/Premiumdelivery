@@ -6,9 +6,16 @@ import { getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.8.1/f
 const VAPID_KEY = 'BJjRi0UCeIH3J2CYmiti-zMtJK4vicKrD1CHzVWke9uMNJKzNyK3bMrYN_Lxy8-g0yR47Ta4rXUT6xXUV9k95Yc';
 const LAMBDA_URL = "https://hem2omj47a.execute-api.eu-north-1.amazonaws.com/default/driver-call-notification";
 
+/**
+ * 🟢 Helper to wait for the existing sw.js to be ready.
+ * We do NOT register a new /firebase-messaging-sw.js because your
+ * app already registers './sw.js' in pwa.js.
+ */
 async function getExistingSWRegistration() {
     if (!('serviceWorker' in navigator)) return null;
     try {
+        // navigator.serviceWorker.ready resolves when the SW is active
+        // and controlling the current page.
         return await navigator.serviceWorker.ready;
     } catch (error) {
         console.error("[NotificationManager] Service worker not ready:", error);
@@ -16,6 +23,12 @@ async function getExistingSWRegistration() {
     }
 }
 
+/**
+ * 🟢 PERMISSION & TOKEN FETCH FUNCTION
+ * 
+ * Triggers the browser notification prompt and safely fetches the FCM token.
+ * Must be called from a direct user click event.
+ */
 export async function requestNotificationPermissionAndToken(messaging) {
     if (!messaging) return { token: "", error: "Messaging not initialized" };
 
@@ -24,17 +37,20 @@ export async function requestNotificationPermissionAndToken(messaging) {
     }
 
     try {
+        // 1. Trigger the prompt (If already granted, this resolves instantly)
         const permission = await window.Notification.requestPermission();
         
         if (permission !== 'granted') {
             return { token: "", error: "denied" };
         }
 
+        // 2. Ensure the existing sw.js is active
         const swRegistration = await getExistingSWRegistration();
         if (!swRegistration) {
             return { token: "", error: "service_worker_failed" };
         }
 
+        // 3. Fetch the token with a short retry loop
         let token = "";
         for (let i = 0; i < 3; i++) {
             try {
@@ -61,6 +77,10 @@ export async function requestNotificationPermissionAndToken(messaging) {
     }
 }
 
+/**
+ * Retrieves this device's FCM token silently (without prompting).
+ * Used during login to check if we already have permission.
+ */
 export async function getDeviceToken(messaging) {
     if (!messaging) return "";
     
