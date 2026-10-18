@@ -4,30 +4,35 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bofelo Driver</title>
-    <script type="module">
-      (async function () {
+    <script>
+      window.addEventListener('DOMContentLoaded', async () => {
           if (!window.Capacitor || !window.Capacitor.isNativePlatform()) return;
           try {
-              const { PushNotifications } = await import('@capacitor/push-notifications');
-              let perm = await PushNotifications.checkPermissions();
-              if (perm.receive !== 'granted') {
-                  perm = await PushNotifications.requestPermissions();
+              const Plugins = window.Capacitor.Plugins;
+              
+              if (Plugins && Plugins.PushNotifications) {
+                  let perm = await Plugins.PushNotifications.checkPermissions();
+                  if (perm.receive !== 'granted') {
+                      perm = await Plugins.PushNotifications.requestPermissions();
+                  }
+                  if (perm.receive === 'granted') {
+                      await Plugins.PushNotifications.register();
+                      Plugins.PushNotifications.addListener('registration', (token) => {
+                          localStorage.setItem('nativeFcmToken', token.value);
+                      });
+                  }
               }
-              if (perm.receive === 'granted') {
-                  await PushNotifications.register();
-                  PushNotifications.addListener('registration', (token) => {
-                      localStorage.setItem('nativeFcmToken', token.value);
-                  });
-              }
-              const { Geolocation } = await import('@capacitor/geolocation');
-              let gps = await Geolocation.checkPermissions();
-              if (gps.location !== 'granted') {
-                  await Geolocation.requestPermissions();
+
+              if (Plugins && Plugins.Geolocation) {
+                  let gps = await Plugins.Geolocation.checkPermissions();
+                  if (gps.location !== 'granted') {
+                      await Plugins.Geolocation.requestPermissions();
+                  }
               }
           } catch (e) {
-              console.error(e);
+              console.error("Native permission error:", e);
           }
-      })();
+      });
     </script>
 </head>
 <body>
