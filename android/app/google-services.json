@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "490119776359",
+    "project_id": "agile-skyline-489209-t3",
+    "storage_bucket": "agile-skyline-489209-t3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:490119776359:android:7a2d1c275190aba1182cc2",
+        "android_client_info": {
+          "package_name": "com.bofelo.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "490119776359-n55d5scfkfdb9gkj33m28f699jsoca75.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpYNK9i9dAA3Vc964ZNMYNToLJxn-xVHo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "490119776359-n55d5scfkfdb9gkj33m28f699jsoca75.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
