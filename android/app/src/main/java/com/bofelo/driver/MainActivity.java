@@ -25,12 +25,16 @@ public class MainActivity extends BridgeActivity {
 
         if (webView != null) {
             webView.postDelayed(() -> {
-                FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
-                    if (task.isSuccessful() && task.getResult() != null) {
-                        String token = task.getResult();
-                        webView.evaluateJavascript("if(window.receiveNativeFcmToken) window.receiveNativeFcmToken('" + token + "');", null);
-                    }
-                });
+                try {
+                    FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+                        if (task.isSuccessful() && task.getResult() != null) {
+                            String token = task.getResult();
+                            webView.evaluateJavascript("if(window.receiveNativeFcmToken) window.receiveNativeFcmToken('" + token + "');", null);
+                        }
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }, 3500);
         }
     }
