@@ -8,6 +8,8 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.PermissionRequest;
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 public class MainActivity extends BridgeActivity {
@@ -23,6 +25,12 @@ public class MainActivity extends BridgeActivity {
         settings.setDatabaseEnabled(true);
         settings.setGeolocationEnabled(true);
         
+        // 🟢 FORCE ALLOW LOADING (Fixes the stuck loading screen)
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
@@ -36,11 +44,17 @@ public class MainActivity extends BridgeActivity {
         });
 
         webView.setWebViewClient(new WebViewClient() {
+            // 🟢 FIX: Ignore SSL errors on redirects (common in Capacitor)
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed(); 
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 
-                // 1. Inject the fake Notification object so your web code doesn't crash
+                // 1. Inject the fake Notification object
                 String injection = 
                     "if (typeof Notification === 'undefined') {" +
                     "  window.Notification = function(title, options) {};" +
@@ -49,7 +63,7 @@ public class MainActivity extends BridgeActivity {
                     "}";
                 view.evaluateJavascript(injection, null);
 
-                // 2. Fetch the Native FCM Token and send it to the website after a 2-second delay
+                // 2. Fetch the Native FCM Token
                 FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
                     if (task.isSuccessful() && task.getResult() != null) {
                         String token = task.getResult();
