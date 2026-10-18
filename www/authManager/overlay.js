@@ -1,9 +1,101 @@
+// authManager/overlay.js
+//
+// Centralized status overlay.
+//
+// Shows a small floating banner at the top of the screen for login,
+// password reset, and any other auth action that needs to communicate
+// progress, success, or failure.
+//
+// Reuses a single DOM element across calls (tracked in state.js) so that
+// rapid triggers — e.g. double-tap on the login button — don't stack
+// ghost overlays on top of each other.
+
 import { authState } from './state.js';
-const BASE_STYLE = { position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', backgroundColor: '#333', color: '#fff', padding: '12px 24px', borderRadius: '8px', zIndex: '9999', fontFamily: 'sans-serif', fontSize: '14px', boxShadow: '0 4px 6px rgba(0,0,0,0.3)', transition: 'opacity 0.3s ease', maxWidth: '90vw', textAlign: 'center', pointerEvents: 'none' };
-const COLORS = { NEUTRAL: '#333', SUCCESS: '#28a745', ERROR: '#dc3545' };
+
+const BASE_STYLE = {
+    position: 'fixed',
+    top: '20px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    backgroundColor: '#333',
+    color: '#fff',
+    padding: '12px 24px',
+    borderRadius: '8px',
+    zIndex: '9999',
+    fontFamily: 'sans-serif',
+    fontSize: '14px',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+    transition: 'opacity 0.3s ease',
+    maxWidth: '90vw',
+    textAlign: 'center',
+    pointerEvents: 'none',
+};
+
+const COLORS = {
+    NEUTRAL: '#333',
+    SUCCESS: '#28a745',
+    ERROR:   '#dc3545',
+};
+
+/**
+ * Shows or updates the status overlay.
+ *
+ * If an overlay is already on screen, it is reused — only its text and
+ * background color change. Otherwise a new element is created.
+ *
+ * @param {string} message                   Text to display
+ * @param {'neutral'|'success'|'error'} tone Color tone for the banner
+ * @returns {HTMLElement}                    The overlay element
+ */
 export function showOverlay(message, tone = 'neutral') {
-    if (authState.activeOverlay && authState.activeOverlay.isConnected) { authState.activeOverlay.innerText = message; authState.activeOverlay.style.backgroundColor = COLORS[tone.toUpperCase()] || COLORS.NEUTRAL; return authState.activeOverlay; }
-    const el = document.createElement('div'); el.innerText = message; Object.assign(el.style, { ...BASE_STYLE, backgroundColor: COLORS[tone.toUpperCase()] || COLORS.NEUTRAL }); document.body.appendChild(el); authState.activeOverlay = el; return el;
+    if (authState.activeOverlay && authState.activeOverlay.isConnected) {
+        // Reuse the existing overlay — just update text and color
+        authState.activeOverlay.innerText = message;
+        authState.activeOverlay.style.backgroundColor =
+            COLORS[tone.toUpperCase()] || COLORS.NEUTRAL;
+        return authState.activeOverlay;
+    }
+
+    const el = document.createElement('div');
+    el.innerText = message;
+    Object.assign(el.style, {
+        ...BASE_STYLE,
+        backgroundColor: COLORS[tone.toUpperCase()] || COLORS.NEUTRAL,
+    });
+    document.body.appendChild(el);
+    authState.activeOverlay = el;
+    return el;
 }
-export function hideOverlayAfter(ms = 1500) { const el = authState.activeOverlay; if (!el) return; setTimeout(() => { el.remove(); if (authState.activeOverlay === el) authState.activeOverlay = null; }, ms); }
-export function clearOverlay() { if (authState.activeOverlay && authState.activeOverlay.isConnected) authState.activeOverlay.remove(); authState.activeOverlay = null; }
+
+/**
+ * Removes the overlay after `ms` milliseconds.
+ *
+ * The delayed removal checks that the overlay hasn't already been
+ * replaced by a newer one — if it has, the old timer is a no-op.
+ *
+ * @param {number} [ms=1500]  Delay before removal
+ */
+export function hideOverlayAfter(ms = 1500) {
+    const el = authState.activeOverlay;
+    if (!el) return;
+
+    setTimeout(() => {
+        el.remove();
+        if (authState.activeOverlay === el) {
+            authState.activeOverlay = null;
+        }
+    }, ms);
+}
+
+/**
+ * Removes the overlay immediately.
+ *
+ * Useful when a caller wants to dismiss the banner without waiting for
+ * a scheduled hideOverlayAfter timer.
+ */
+export function clearOverlay() {
+    if (authState.activeOverlay && authState.activeOverlay.isConnected) {
+        authState.activeOverlay.remove();
+    }
+    authState.activeOverlay = null;
+}
