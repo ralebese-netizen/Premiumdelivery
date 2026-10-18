@@ -4,39 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bofelo Driver</title>
-    <script>
-      window.addEventListener('DOMContentLoaded', async () => {
-          if (!window.Capacitor || !window.Capacitor.isNativePlatform()) return;
-          try {
-              const Plugins = window.Capacitor.Plugins;
-              
-              if (Plugins && Plugins.PushNotifications) {
-                  let perm = await Plugins.PushNotifications.checkPermissions();
-                  if (perm.receive !== 'granted') {
-                      perm = await Plugins.PushNotifications.requestPermissions();
-                  }
-                  if (perm.receive === 'granted') {
-                      await Plugins.PushNotifications.register();
-                      Plugins.PushNotifications.addListener('registration', (token) => {
-                          localStorage.setItem('nativeFcmToken', token.value);
-                      });
-                  }
-              }
-
-              if (Plugins && Plugins.Geolocation) {
-                  let gps = await Plugins.Geolocation.checkPermissions();
-                  if (gps.location !== 'granted') {
-                      await Plugins.Geolocation.requestPermissions();
-                  }
-              }
-          } catch (e) {
-              console.error("Native permission error:", e);
-          }
-      });
-    </script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #ffffff; overflow: hidden; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
 </head>
 <body>
-    <div id="app"></div>
-    <script type="module" src="./app.js"></script>
+    <script>
+        // Native FCM bridge receiver
+        window.receiveNativeFcmToken = function(token) {
+            window.nativeFcmToken = token;
+            const iframe = document.getElementById('app-frame');
+            if (iframe && iframe.contentWindow) {
+                iframe.contentWindow.postMessage({ type: 'FCM_TOKEN', token: token }, '*');
+            }
+        };
+
+        // Fallback redirection or embedded load
+        window.addEventListener('DOMContentLoaded', () => {
+            window.location.replace('./app/pbx.html');
+        });
+    </script>
 </body>
 </html>

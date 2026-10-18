@@ -2,7 +2,5 @@
   "appId": "com.bofelo.driver",
   "appName": "Bofelo Driver",
   "webDir": "www",
-  "server": {
-    "androidScheme": "https"
-  }
+  "bundledWebRuntime": false
 }
