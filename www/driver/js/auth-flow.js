@@ -9,15 +9,15 @@ import {
     loginUser,
     registerDriver,
     resetPassword,
-} from "../../authManager.js";
-import { getDeviceToken, storeTokenInFirestore, setupForegroundListener } from "../../notificationManager.js";
+} from "./authManager.js";
+import { getDeviceToken, storeTokenInFirestore, setupForegroundListener } from "./notificationManager.js";
 import { syncDriverToken, watchTokenRefresh, verifyTokenOnce } from "./tokenSync.js";
-import { ProfileManager } from "../../profileManager.js";
-import { startTracking, stopTracking } from "../../trackingManager.js";
-import { initializeOrderSystem } from "../../orderManager.js";
+import { ProfileManager } from "./profileManager.js";
+import { startTracking, stopTracking } from "./trackingManager.js";
+import { initializeOrderSystem } from "./orderManager.js";
 import { showToast, showScreen, hideScreen } from "./ui.js";
 import { getFleetName } from "./branding.js";
-import { startHeartbeat, stopHeartbeat } from "../../presence.js";
+import { startHeartbeat, stopHeartbeat } from "./presence.js";
 
 let orderSystemInitialized = false;
 const SERVER_SNAPSHOT_FALLBACK_MS = 3000;

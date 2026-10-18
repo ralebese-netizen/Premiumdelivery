@@ -3,7 +3,7 @@
 
 import { doc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db } from "./firebase-init.js";
-import { joinCallRoom, endCall, ringCustomerPhone } from "../../callManager.js";
+import { joinCallRoom, endCall, ringCustomerPhone } from "./callManager.js";
 import { showBanner, hideBanner } from "./ui.js";
 
 // ─────────────────────────────────────────────────────────────────────────────

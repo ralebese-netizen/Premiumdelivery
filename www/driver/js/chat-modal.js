@@ -3,9 +3,9 @@
 
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { db, storage } from "./firebase-init.js";
-import { setupChatSystem, stopChatListener } from "../../chatManager.js";
-import { setupPBXButton } from "../../pbxManager.js";
-import { sendPush } from "../../notificationManager.js";
+import { setupChatSystem, stopChatListener } from "./chatManager.js";
+import { setupPBXButton } from "./pbxManager.js";
+import { sendPush } from "./notificationManager.js";
 import { callState, startOutboundCall } from "./call-handlers.js";
 import { showScreen, hideScreen, showToast } from "./ui.js";
 
