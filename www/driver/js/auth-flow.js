@@ -170,6 +170,33 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     window.currentDriverId = user.uid;
 
+    // 🟢 FORCE FCM REGISTRATION ON EVERY LOGIN
+    // This fixes the bug where the token is only saved on the very first app install.
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        try {
+            const { PushNotifications } = window.Capacitor.Plugins || {};
+            if (PushNotifications) {
+                console.log("[Auth] Forcing native FCM registration on login...");
+                
+                // Clean up old listeners to prevent duplicates
+                PushNotifications.removeAllListeners();
+                
+                // Attach listener to catch the token
+                PushNotifications.addListener('registration', async (token) => {
+                    console.log('[FCM/native] Token received on login:', token.value.slice(0, 20) + '...');
+                    if (window.receiveNativeFcmToken) {
+                        await window.receiveNativeFcmToken(token.value);
+                    }
+                });
+
+                // This triggers Android to return the cached token immediately
+                await PushNotifications.register();
+            }
+        } catch (err) {
+            console.warn('[Auth] Failed to force FCM registration:', err);
+        }
+    }
+
     // 🟢 NATIVE ONLY — attempt token sync (retries automatically if not ready)
     if (window.syncNativeTokenToFirestore) {
         try {
