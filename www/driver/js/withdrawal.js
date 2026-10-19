@@ -3,7 +3,7 @@
 
 import { showToast } from "./ui.js";
 
-const WITHDRAWAL_ENDPOINT = "https://u9o1zxrb58.execute-api.eu-north-1.amazonaws.com/default/ctobopenaip";
+const WITHDRAWAL_ENDPOINT = "https://1668zaqim5.execute-api.eu-north-1.amazonaws.com/default/driverwalletwithdrawal";
 
 export function initWithdrawal() {
     document.getElementById('withdraw-btn').addEventListener('click', requestWithdrawal);
