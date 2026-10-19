@@ -1,435 +1,269 @@
-// driver/js/auth-flow.js
-// Login, registration, and the Firebase Auth state listener.
+// driver/js/app.js
+// Bootstrap: wires all modules together on page load.
 
-import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-import { db, auth, storage, messaging } from "./firebase-init.js";
-import {
-    monitorAuthState,
-    loginUser,
-    registerDriver,
-    resetPassword,
-} from "../../authManager.js";
-import { getDeviceToken, storeTokenInFirestore, setupForegroundListener } from "../../notificationManager.js";
-import { syncDriverToken, watchTokenRefresh, verifyTokenOnce } from "./tokenSync.js";
-import { ProfileManager } from "../../profileManager.js";
-import { startTracking, stopTracking } from "../../trackingManager.js";
-import { initializeOrderSystem } from "../../orderManager.js";
-import { showToast, showScreen, hideScreen } from "./ui.js";
-import { getFleetName } from "./branding.js";
-import { startHeartbeat, stopHeartbeat } from "../../presence.js";
+import { showToast, hideScreen } from "./ui.js";
+import { initBranding } from "./branding.js";
+import { initAuthFlow } from "./auth-flow.js";
+import { initCallHandlers, handleIncomingCallState, callState } from "./call-handlers.js";
+import { initChatModal, openChatModal, closeChatModal } from "./chat-modal.js";
+import { initWithdrawal } from "./withdrawal.js";
+import { initPWA } from "./pwa.js";
 
-let orderSystemInitialized = false;
-const SERVER_SNAPSHOT_FALLBACK_MS = 3000;
+// --- Expose globals for external modules ---
+window.showToast = showToast;
+window.openChatModal = openChatModal;
+window.closeChatModal = closeChatModal;
 
-// 🟢 Native token retry timer — cleared on logout
-let nativeTokenRetryTimer = null;
+// --- Capacitor plugins — safe dynamic import (browser mode won't crash) ---
+let PushNotifications = null;
+let Geolocation = null;
+const isNative =
+    typeof window !== 'undefined' &&
+    window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === 'function' &&
+    window.Capacitor.isNativePlatform();
 
-export function initAuthFlow(onCallStateChange) {
-    document.getElementById('login-btn').addEventListener('click', handleLoginClick);
-    document.getElementById('register-btn').addEventListener('click', handleRegisterClick);
-
-    const forgotBtn = document.getElementById('forgot-password-btn');
-    if (forgotBtn) {
-        forgotBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('email').value.trim();
-            if (!email) {
-                return showToast("Enter your email first, then tap Forgot Password.");
-            }
-            await resetPassword(auth, email);
-        });
-    }
-
-    document.getElementById('show-signup-btn').addEventListener('click', () => {
-        hideScreen('login-screen');
-        showScreen('signup-screen');
-    });
-    document.getElementById('show-login-btn').addEventListener('click', () => {
-        hideScreen('signup-screen');
-        showScreen('login-screen', 'flex');
-    });
-
-    document.getElementById('logout-pending-btn').addEventListener('click', logoutDriver);
-    document.getElementById('logout-suspended-btn').addEventListener('click', logoutDriver);
-
-    setupForegroundListener(messaging, 'order-ringtone');
-    monitorAuthState(auth, (user) => handleLoggedIn(user, onCallStateChange), handleLoggedOut);
-}
-
-async function handleLoginClick() {
-    const loginBtn = document.getElementById('login-btn');
-    loginBtn.innerText = "Authenticating...";
-    loginBtn.disabled = true;
-
-    const result = await loginUser(
-        auth,
-        document.getElementById('email').value.trim(),
-        document.getElementById('password').value
-    );
-    loginBtn.innerText = "Secure Login";
-    loginBtn.disabled = false;
-    if (!result.success) showToast("Login Failed: " + result.error);
-}
-
-async function handleRegisterClick() {
-    const email = document.getElementById('reg-email').value;
-    const pass = document.getElementById('reg-password').value;
-    const idPhotoFile = document.getElementById('reg-id-photo').files[0];
-    const selfieFile = document.getElementById('reg-selfie-photo').files[0];
-
-    if (!email || !pass || !idPhotoFile || !selfieFile) {
-        return showToast("Please fill all fields & upload photos.");
-    }
-
-    const driverData = {
-        fullName: document.getElementById('reg-name').value.trim(),
-        phoneNumber: document.getElementById('reg-phone').value.trim(),
-        homeAddress: document.getElementById('reg-address').value.trim(),
-        emergencyContact: {
-            name: document.getElementById('reg-kin-name').value.trim(),
-            phone: document.getElementById('reg-kin-phone').value.trim()
-        },
-        vehicle: {
-            type: document.getElementById('reg-vehicle-type').value,
-            plateNumber: document.getElementById('reg-plate').value.trim() || "N/A"
-        },
-        status: 'pending'
-    };
-
-    const result = await registerDriver(
-        auth, db, storage, email, pass, driverData,
-        idPhotoFile, selfieFile, document.getElementById('reg-status')
-    );
-
-    if (result.success) {
-        hideScreen('signup-screen');
-        showToast("Registration successful! Checking status...");
-    } else {
-        showToast("Registration Failed: " + result.error);
-    }
-}
-
-function showSplash(message = 'Loading...') {
-    const splash = document.getElementById('boot-splash');
-    if (!splash) return;
-    splash.style.display = 'flex';
-    const msgEl = splash.querySelector('p');
-    if (msgEl) msgEl.innerText = message;
-}
-
-function hideSplash() {
-    const splash = document.getElementById('boot-splash');
-    if (splash) splash.style.display = 'none';
-}
-
-// 🟢 Retries native token sync every 2s until token arrives or 60s pass
-function scheduleNativeTokenRetry() {
-    if (nativeTokenRetryTimer) {
-        clearInterval(nativeTokenRetryTimer);
-        nativeTokenRetryTimer = null;
-    }
-
-    let attempts = 0;
-    const MAX_ATTEMPTS = 30;
-
-    nativeTokenRetryTimer = setInterval(async () => {
-        attempts++;
-
-        if (!window.currentDriverId) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-            return;
-        }
-
-        if (window.nativeFcmToken) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-
-            try {
-                const result = await window.syncNativeTokenToFirestore();
-                console.log('[Auth] ✅ Delayed native token sync result:', result);
-            } catch (e) {
-                console.error('[Auth] ❌ Delayed native token sync threw:', e);
-            }
-            return;
-        }
-
-        if (attempts >= MAX_ATTEMPTS) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-            console.warn('[Auth] ⚠️ Native FCM token never arrived after 60s — check android setup');
-        }
-    }, 2000);
-}
-
-async function handleLoggedIn(user, onCallStateChange) {
-    hideScreen('login-screen');
-    hideScreen('dashboard');
-    hideScreen('pending-approval-screen');
-    hideScreen('suspended-screen');
-
-    showSplash('Signing you in...');
-
-    window.currentDriverId = user.uid;
-
-    // 🟢 Attempt native token sync (may no-op if token hasn't arrived yet)
-    if (window.syncNativeTokenToFirestore) {
-        try {
-            const syncResult = await window.syncNativeTokenToFirestore();
-            console.log('[Auth] Initial native token sync:', syncResult);
-
-            if (syncResult && syncResult.ok === false && syncResult.reason === 'no-token') {
-                console.log('[Auth] Waiting for native FCM token — setting up retry...');
-                scheduleNativeTokenRetry();
-            }
-        } catch (e) {
-            console.warn('[Auth] Initial native token sync threw:', e);
-            scheduleNativeTokenRetry();
-        }
-    } else {
-        console.log('[Auth] syncNativeTokenToFirestore not defined — web-only mode?');
-    }
-
-    ProfileManager.init(db, user.uid, "driver");
-    ProfileManager.logoutHook = async () => {
-        if (confirm("Are you sure you want to log out?")) logoutDriver();
-    };
-
-    startHeartbeat(db, 'driver', user.uid);
-
-    // 🟢 Web FCM token fetch — wait for SW registration first
-    let token = null;
-    try {
-        if (window.__swRegistrationPromise) {
-            await window.__swRegistrationPromise;
-        }
-        token = await getDeviceToken(messaging);
-    } catch (e) {
-        console.warn('[Auth] getDeviceToken failed:', e.message);
-    }
-
-    // If token is empty but permission is granted, retry once after 3s
-    // (handles the case where SW is still installing on first visit)
-    if (!token && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        console.log('[Auth] Empty token but permission granted — retrying in 3s');
-        await new Promise(r => setTimeout(r, 3000));
-        try {
-            token = await getDeviceToken(messaging);
-        } catch (e) {
-            console.warn('[Auth] Retry failed:', e.message);
-        }
-    }
-
-    window.currentDriverToken = token || "";
-
-    const notifBanner = document.getElementById('notif-banner');
-
-    if (token) {
-        if (notifBanner) notifBanner.style.display = 'none';
-
-        // ✅ Await initial save so we know it landed
-        try {
-            await syncDriverToken(db, messaging, user.uid);
-            console.log('[Auth] ✅ Web FCM token synced to Firestore');
-        } catch (e) {
-            console.error('[Auth] ❌ Initial web token sync failed:', e.code || e.message);
-
-            setTimeout(() => {
-                syncDriverToken(db, messaging, user.uid)
-                    .then(() => console.log('[Auth] ✅ Web token sync retry succeeded'))
-                    .catch((e2) => console.error('[Auth] ❌ Web token retry failed:', e2.code || e2.message));
-            }, 3000);
-        }
-
-        watchTokenRefresh(db, messaging, user.uid).catch((e) =>
-            console.warn("[Auth] Token refresh listener failed:", e)
-        );
-
-        document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") {
-                verifyTokenOnce(db, messaging, user.uid).catch((e) =>
-                    console.warn("[Auth] Foreground verify failed:", e)
-                );
-            }
-        });
-    } else {
-        if (notifBanner) notifBanner.style.display = 'flex';
-    }
-
-    let firstServerSnapshot = false;
-
-    const slowServerFallback = setTimeout(() => {
-        if (!firstServerSnapshot) {
-            console.warn('[Auth] Server snapshot slow — proceeding with cache data');
-            firstServerSnapshot = true;
-            hideSplash();
-        }
-    }, SERVER_SNAPSHOT_FALLBACK_MS);
-
-    onSnapshot(doc(db, "drivers", user.uid), { includeMetadataChanges: true }, (docSnap) => {
-        if (!firstServerSnapshot) {
-            if (docSnap.metadata.fromCache) return;
-            firstServerSnapshot = true;
-            clearTimeout(slowServerFallback);
-            hideSplash();
-        }
-
-        if (docSnap.metadata.fromCache) {
-            return;
-        }
-
-        if (!docSnap.exists()) {
-            return;
-        }
-
-        const data = docSnap.data();
-        const status = data.status || 'pending';
-
-        if (status === 'pending' || status === 'suspended') {
-            hideScreen('dashboard');
-            showScreen('pending-approval-screen', status === 'pending' ? 'block' : 'none');
-            showScreen('suspended-screen', status === 'suspended' ? 'block' : 'none');
-            stopTracking();
-            return;
-        }
-
-        hideScreen('pending-approval-screen');
-        hideScreen('suspended-screen');
-        showScreen('dashboard');
-
-        const balanceEl = document.getElementById('wallet-balance-display');
-        if (balanceEl) balanceEl.innerText = 'M ' + parseFloat(data.walletBalance || 0).toFixed(2);
-
-        if (!orderSystemInitialized) {
-            initializeOrderSystem({
-                db: db,
-                driverId: user.uid,
-                driverToken: token || "",
-                fleetName: getFleetName(),
-                isVIP: data.isPriority === true,
-
-                onToast: showToast,
-                onOpenChat: (orderId) => window.openChatModal(orderId),
-                onStartTracking: (orderId) => startTracking(orderId, db),
-                onStopTracking: () => stopTracking(),
-
-                onNewOrderNotification: async (oData) => {
-                    if ('Notification' in window && typeof window.Notification !== 'undefined' && window.Notification.permission === 'granted') {
-                        const iconUrl = "logo.png";
-                        navigator.serviceWorker.ready.then(reg => {
-                            reg.showNotification("New Delivery Request!", {
-                                body: `Pickup: ${oData.pickup || 'Location'}`,
-                                icon: iconUrl,
-                                badge: iconUrl
-                            });
-                        });
-                    }
-                },
-
-                onCallStateChange: onCallStateChange
-            });
-            orderSystemInitialized = true;
-        }
-    });
-}
-
-function handleLoggedOut() {
-    // 🟢 Clear any pending native token retry
-    if (nativeTokenRetryTimer) {
-        clearInterval(nativeTokenRetryTimer);
-        nativeTokenRetryTimer = null;
-    }
-
-    stopHeartbeat();
-    hideSplash();
-    hideScreen('dashboard');
-    showScreen('login-screen', 'flex');
-    window.currentDriverId = null;
-    window.currentDriverToken = null;
-    window.nativeFcmToken = null;
-    orderSystemInitialized = false;
-}
-
-export async function logoutDriver() {
-    if (nativeTokenRetryTimer) {
-        clearInterval(nativeTokenRetryTimer);
-        nativeTokenRetryTimer = null;
-    }
-    stopHeartbeat();
-    stopTracking();
-    await signOut(auth);
-    localStorage.removeItem('user_profile');
-    window.location.reload();
-}
-
-window.enableNotifications = async () => {
-    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-        const banner = document.getElementById('notif-banner');
-        if (banner) banner.style.display = 'none';
-        showToast("Native notifications are active.");
-
-        if (window.syncNativeTokenToFirestore) {
-            const r = await window.syncNativeTokenToFirestore();
-            if (r && r.ok === false && r.reason === 'no-token') {
-                console.log('[Auth] Native token not ready — starting retry');
-                scheduleNativeTokenRetry();
-            }
-        }
+async function loadCapacitorPlugins() {
+    if (!isNative) {
+        console.log('[Driver] Browser mode — skipping native plugins');
         return;
     }
+    try {
+        ({ PushNotifications } = await import('@capacitor/push-notifications'));
+        ({ Geolocation } = await import('@capacitor/geolocation'));
+        console.log('[Driver] Capacitor plugins loaded');
+    } catch (e) {
+        console.warn('[Driver] Capacitor plugin load failed:', e.message);
+    }
+}
 
-    if (!('Notification' in window) || typeof window.Notification === 'undefined') {
-        return showToast("⚠️ Notifications are not supported in this browser. Try opening in Chrome.");
+// --- Fail-safe: always unblock UI on any boot error ---
+function showBootFailure(err) {
+    console.error('[Driver] Boot failure:', err);
+    try {
+        const splash = document.getElementById('boot-splash');
+        if (splash) splash.style.display = 'none';
+        if (!document.getElementById('boot-unlock-style')) {
+            const unlock = document.createElement('style');
+            unlock.id = 'boot-unlock-style';
+            unlock.textContent = '#login-screen { display: block !important; }';
+            document.head.appendChild(unlock);
+        }
+        if (window.showToast) window.showToast('Something went wrong. Please reload.');
+    } catch (e) {
+        console.error('[Driver] Even fail-safe failed:', e);
+    }
+}
+
+// --- Bootstrap ---
+async function bootstrap() {
+    console.log('[Driver] Bootstrap running');
+    try {
+        await loadCapacitorPlugins();
+
+        requestNativePermissionsAtBoot().catch(e =>
+            console.warn('[Driver] Permission request error:', e)
+        );
+
+        const safe = (name, fn) => {
+            try { fn(); } catch (e) {
+                console.error(`[Driver] ${name} failed:`, e);
+            }
+        };
+
+        safe('initBranding', initBranding);
+        safe('initCallHandlers', initCallHandlers);
+        safe('initChatModal', initChatModal);
+        safe('initWithdrawal', initWithdrawal);
+        safe('initPWA', initPWA);
+
+        const openBtn = document.getElementById('open-profile-btn');
+        const closeBtn = document.getElementById('close-profile-btn');
+        if (openBtn) openBtn.addEventListener('click', () => {
+            document.getElementById('profile-modal').style.display = 'block';
+        });
+        if (closeBtn) closeBtn.addEventListener('click', () => {
+            document.getElementById('profile-modal').style.display = 'none';
+        });
+
+        initAuthFlow(handleIncomingCallState);
+
+        setupAudioUnlock();
+        setupServiceWorkerListener();
+        handleIncomingCallFromUrl();
+        wireNativePushListeners();
+
+        console.log('[Driver] Bootstrap complete');
+    } catch (err) {
+        showBootFailure(err);
+    }
+}
+
+// --- Native permissions ---
+async function requestNativePermissionsAtBoot() {
+    if (!isNative) return;
+    try {
+        if (PushNotifications) {
+            let perm = await PushNotifications.checkPermissions();
+            if (perm.receive === 'prompt') {
+                perm = await PushNotifications.requestPermissions();
+            }
+            if (perm.receive === 'granted') {
+                await PushNotifications.register();
+            }
+        }
+        if (Geolocation) {
+            const loc = await Geolocation.checkPermissions();
+            if (loc.location === 'prompt') {
+                await Geolocation.requestPermissions();
+            }
+        }
+    } catch (e) {
+        console.warn('[Native Boot] Permission error:', e);
+    }
+}
+
+// --- Wire native push token listener ---
+function wireNativePushListeners() {
+    if (!isNative || !PushNotifications) return;
+
+    PushNotifications.addListener('registration', async (token) => {
+        console.log('[FCM/native] Token received:', token.value.slice(0, 20) + '...');
+        if (window.receiveNativeFcmToken) {
+            await window.receiveNativeFcmToken(token.value);
+        }
+    });
+
+    PushNotifications.addListener('registrationError', (err) => {
+        console.error('[FCM/native] Registration error:', err);
+    });
+}
+
+// --- Token syncing to Firestore ---
+window.receiveNativeFcmToken = async (token) => {
+    if (!token) return;
+    console.log('[FCM/native] Token received:', token.slice(0, 20) + '...');
+    window.nativeFcmToken = token;
+    window.currentDriverToken = token;
+    await window.syncNativeTokenToFirestore();
+};
+
+window.syncNativeTokenToFirestore = async () => {
+    if (!window.nativeFcmToken) {
+        console.log('[FCM/native] No token yet — will retry after it arrives');
+        return { ok: false, reason: 'no-token' };
+    }
+    if (!window.currentDriverId) {
+        console.log('[FCM/native] No driver ID yet — will retry after login');
+        return { ok: false, reason: 'no-driver' };
     }
 
     try {
-        // Use the prompting function that returns { token, error }
-        const { requestNotificationPermissionAndToken } = await import('../../notificationManager.js');
-        const { token, error } = await requestNotificationPermissionAndToken(messaging);
+        const { doc, setDoc, serverTimestamp } = await import(
+            "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js"
+        );
+        const { db } = await import("./firebase-init.js");
 
-        if (error) {
-            const msg = {
-                denied: "⚠️ Notifications blocked. Please check browser settings.",
-                service_worker_failed: "⚠️ Service worker failed to register. Please reload.",
-                failed_to_generate: "⚠️ Could not generate token. Try refreshing.",
-                unsupported: "⚠️ Notifications are not supported in this browser.",
-                exception: "⚠️ Unexpected error. Please reload.",
-            }[error] || "⚠️ Could not enable notifications.";
-            showToast(msg);
-            return;
-        }
+        await setDoc(doc(db, "drivers", window.currentDriverId), {
+            fcmToken: window.nativeFcmToken,
+            fcmPlatform: 'android',
+            fcmTokenUpdatedAt: serverTimestamp(),
+        }, { merge: true });
 
-        window.currentDriverToken = token;
-
-        if (token && window.currentDriverId) {
-            try {
-                await syncDriverToken(db, messaging, window.currentDriverId);
-                const banner = document.getElementById('notif-banner');
-                if (banner) banner.style.display = 'none';
-                console.log('[Auth] ✅ Manual token sync succeeded');
-                showToast("✅ Notifications enabled! Calls will now connect.");
-            } catch (e) {
-                console.error('[Auth] ❌ Manual token sync failed:', e.code || e.message);
-                showToast("⚠️ Token saved locally but Firestore write failed. Retrying...");
-
-                setTimeout(() => {
-                    syncDriverToken(db, messaging, window.currentDriverId)
-                        .then(() => {
-                            console.log('[Auth] ✅ Manual retry succeeded');
-                            showToast("✅ Notifications fully enabled!");
-                        })
-                        .catch((e2) => {
-                            console.error('[Auth] ❌ Manual retry failed:', e2.code || e2.message);
-                            showToast("⚠️ Could not save token. Check Firestore rules.");
-                        });
-                }, 3000);
-            }
-        } else {
-            showToast("⚠️ Failed to generate token. Please try again.");
-        }
-    } catch (error) {
-        console.error("[Auth] Error enabling notifications:", error);
-        showToast("⚠️ Error requesting permission.");
+        console.log('[FCM/native] ✅ Token synced to Firestore for driver:', window.currentDriverId);
+        return { ok: true };
+    } catch (e) {
+        console.error('[FCM/native] ❌ Token sync failed:', e.code || e.message, e);
+        return { ok: false, reason: 'firestore-error', error: e };
     }
 };
+
+// --- Audio unlock ---
+function setupAudioUnlock() {
+    const unlock = () => {
+        const elements = [
+            document.getElementById('order-ringtone'),
+            document.getElementById('meeting-audio'),
+        ];
+        for (const audio of elements) {
+            if (!audio) continue;
+            const p = audio.play();
+            if (p && typeof p.then === 'function') {
+                p.then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {});
+            }
+        }
+        document.removeEventListener('click', unlock);
+        document.removeEventListener('touchstart', unlock);
+        document.removeEventListener('keydown', unlock);
+    };
+    document.addEventListener('click', unlock);
+    document.addEventListener('touchstart', unlock);
+    document.addEventListener('keydown', unlock);
+}
+
+// --- SW ringtone listener ---
+function setupServiceWorkerListener() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        const data = event.data;
+        if (!data || data.type !== 'play-ringtone') return;
+        console.log('[Driver] SW requested ringtone', { orderId: data.orderId });
+        const ringtone =
+            document.getElementById('order-ringtone') ||
+            document.getElementById('notification-chime');
+        if (!ringtone) return;
+        try {
+            ringtone.currentTime = 0;
+            const p = ringtone.play();
+            if (p && typeof p.then === 'function') {
+                p.catch((e) => console.warn('[Driver] Ringtone blocked:', e.message));
+            }
+        } catch (e) {
+            console.warn('[Driver] Ringtone threw:', e.message);
+        }
+    });
+}
+
+// --- URL-driven incoming call ---
+function handleIncomingCallFromUrl() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('incomingCall') !== 'true') return;
+
+        const orderId = params.get('orderId') || null;
+        console.log('[Driver] Opened via incoming-call URL', { orderId });
+
+        const banner = document.getElementById('incoming-call-banner');
+        if (banner) banner.style.display = 'block';
+
+        if (orderId) {
+            window.currentOrderId = orderId;
+            callState.incomingCallOrderId = orderId;
+            window.dispatchEvent(new CustomEvent('bofeloOrderActive', { detail: orderId }));
+        }
+
+        const ringtone =
+            document.getElementById('order-ringtone') ||
+            document.getElementById('notification-chime');
+        if (!ringtone) return;
+
+        try {
+            ringtone.currentTime = 0;
+            const p = ringtone.play();
+            if (p && typeof p.then === 'function') {
+                p.catch((e) => console.warn('[Driver] URL ringtone blocked:', e.message));
+            }
+        } catch (e) {
+            console.warn('[Driver] URL ringtone threw:', e.message);
+        }
+    } catch (e) {
+        console.warn('[Driver] handleIncomingCallFromUrl failed:', e.message);
+    }
+}
+
+// --- Kick off ---
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+} else {
+    bootstrap();
+}
