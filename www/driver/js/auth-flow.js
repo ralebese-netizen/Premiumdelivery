@@ -123,7 +123,7 @@ function hideSplash() {
     if (splash) splash.style.display = 'none';
 }
 
-// 🟢 NEW: Retries native token sync every 2s until token arrives or 60s pass
+// 🟢 Retries native token sync every 2s until token arrives or 60s pass
 function scheduleNativeTokenRetry() {
     if (nativeTokenRetryTimer) {
         clearInterval(nativeTokenRetryTimer);
@@ -131,7 +131,7 @@ function scheduleNativeTokenRetry() {
     }
 
     let attempts = 0;
-    const MAX_ATTEMPTS = 30; // 30 × 2s = 60s
+    const MAX_ATTEMPTS = 30;
 
     nativeTokenRetryTimer = setInterval(async () => {
         attempts++;
@@ -173,7 +173,7 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     window.currentDriverId = user.uid;
 
-    // 🟢 Attempt native token sync now (may no-op if token hasn't arrived yet)
+    // 🟢 Attempt native token sync (may no-op if token hasn't arrived yet)
     if (window.syncNativeTokenToFirestore) {
         try {
             const syncResult = await window.syncNativeTokenToFirestore();
@@ -198,13 +198,29 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     startHeartbeat(db, 'driver', user.uid);
 
-    // 🟢 Web FCM token fetch (safe even if messaging is null)
+    // 🟢 Web FCM token fetch — wait for SW registration first
     let token = null;
     try {
+        if (window.__swRegistrationPromise) {
+            await window.__swRegistrationPromise;
+        }
         token = await getDeviceToken(messaging);
     } catch (e) {
         console.warn('[Auth] getDeviceToken failed:', e.message);
     }
+
+    // If token is empty but permission is granted, retry once after 3s
+    // (handles the case where SW is still installing on first visit)
+    if (!token && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        console.log('[Auth] Empty token but permission granted — retrying in 3s');
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+            token = await getDeviceToken(messaging);
+        } catch (e) {
+            console.warn('[Auth] Retry failed:', e.message);
+        }
+    }
+
     window.currentDriverToken = token || "";
 
     const notifBanner = document.getElementById('notif-banner');
@@ -219,7 +235,6 @@ async function handleLoggedIn(user, onCallStateChange) {
         } catch (e) {
             console.error('[Auth] ❌ Initial web token sync failed:', e.code || e.message);
 
-            // Retry once after 3s in case it was transient
             setTimeout(() => {
                 syncDriverToken(db, messaging, user.uid)
                     .then(() => console.log('[Auth] ✅ Web token sync retry succeeded'))
@@ -354,7 +369,6 @@ window.enableNotifications = async () => {
         if (banner) banner.style.display = 'none';
         showToast("Native notifications are active.");
 
-        // 🟢 Native path: try token sync, and retry if needed
         if (window.syncNativeTokenToFirestore) {
             const r = await window.syncNativeTokenToFirestore();
             if (r && r.ok === false && r.reason === 'no-token') {
@@ -370,43 +384,49 @@ window.enableNotifications = async () => {
     }
 
     try {
-        const permission = await window.Notification.requestPermission();
+        // Use the prompting function that returns { token, error }
+        const { requestNotificationPermissionAndToken } = await import('../../notificationManager.js');
+        const { token, error } = await requestNotificationPermissionAndToken(messaging);
 
-        if (permission === 'granted') {
-            const banner = document.getElementById('notif-banner');
-            if (banner) banner.style.display = 'none';
+        if (error) {
+            const msg = {
+                denied: "⚠️ Notifications blocked. Please check browser settings.",
+                service_worker_failed: "⚠️ Service worker failed to register. Please reload.",
+                failed_to_generate: "⚠️ Could not generate token. Try refreshing.",
+                unsupported: "⚠️ Notifications are not supported in this browser.",
+                exception: "⚠️ Unexpected error. Please reload.",
+            }[error] || "⚠️ Could not enable notifications.";
+            showToast(msg);
+            return;
+        }
 
-            showToast("Fetching notification token...");
+        window.currentDriverToken = token;
 
-            const token = await getDeviceToken(messaging);
-            window.currentDriverToken = token;
+        if (token && window.currentDriverId) {
+            try {
+                await syncDriverToken(db, messaging, window.currentDriverId);
+                const banner = document.getElementById('notif-banner');
+                if (banner) banner.style.display = 'none';
+                console.log('[Auth] ✅ Manual token sync succeeded');
+                showToast("✅ Notifications enabled! Calls will now connect.");
+            } catch (e) {
+                console.error('[Auth] ❌ Manual token sync failed:', e.code || e.message);
+                showToast("⚠️ Token saved locally but Firestore write failed. Retrying...");
 
-            if (token && window.currentDriverId) {
-                try {
-                    await syncDriverToken(db, messaging, window.currentDriverId);
-                    console.log('[Auth] ✅ Manual token sync succeeded');
-                    showToast("✅ Notifications enabled! Calls will now connect.");
-                } catch (e) {
-                    console.error('[Auth] ❌ Manual token sync failed:', e.code || e.message);
-                    showToast("⚠️ Token saved locally but Firestore write failed. Retrying...");
-
-                    setTimeout(() => {
-                        syncDriverToken(db, messaging, window.currentDriverId)
-                            .then(() => {
-                                console.log('[Auth] ✅ Manual retry succeeded');
-                                showToast("✅ Notifications fully enabled!");
-                            })
-                            .catch((e2) => {
-                                console.error('[Auth] ❌ Manual retry failed:', e2.code || e2.message);
-                                showToast("⚠️ Could not save token. Check Firestore rules.");
-                            });
-                    }, 3000);
-                }
-            } else {
-                showToast("⚠️ Failed to generate token. Please try again.");
+                setTimeout(() => {
+                    syncDriverToken(db, messaging, window.currentDriverId)
+                        .then(() => {
+                            console.log('[Auth] ✅ Manual retry succeeded');
+                            showToast("✅ Notifications fully enabled!");
+                        })
+                        .catch((e2) => {
+                            console.error('[Auth] ❌ Manual retry failed:', e2.code || e2.message);
+                            showToast("⚠️ Could not save token. Check Firestore rules.");
+                        });
+                }, 3000);
             }
         } else {
-            showToast("⚠️ Notifications blocked. Please check browser settings.");
+            showToast("⚠️ Failed to generate token. Please try again.");
         }
     } catch (error) {
         console.error("[Auth] Error enabling notifications:", error);
