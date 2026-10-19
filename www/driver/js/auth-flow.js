@@ -17,7 +17,7 @@ import { showToast, showScreen, hideScreen } from "./ui.js";
 import { getFleetName } from "./branding.js";
 import { startHeartbeat, stopHeartbeat } from "../../presence.js";
 
-// 🟢 IMPORT THE NEW CAPACITOR TOKEN SYNC
+// 🟢 IMPORT THE CAPACITOR TOKEN SYNC
 import { syncDriverToken, watchTokenRefresh } from "./tokenSync.js";
 
 let orderSystemInitialized = false;
@@ -162,10 +162,26 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     window.currentDriverId = user.uid;
 
-    // 🟢 1. FORCE NATIVE FCM REGISTRATION ON LOGIN
+    // 🟢 1. SETUP NATIVE CALL CHANNEL & FCM
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
-            const { PushNotifications } = window.Capacitor.Plugins || {};
+            const { PushNotifications, LocalNotifications } = window.Capacitor.Plugins || {};
+            
+            // A. Create the high-priority Call Notification Channel
+            if (LocalNotifications) {
+                await LocalNotifications.createChannel({
+                    id: 'bofelo_calls',
+                    name: 'Incoming Calls',
+                    description: 'Ringing for customer calls',
+                    importance: 5, // High importance (makes sound)
+                    visibility: 1, // Public (shows on lock screen)
+                    sound: 'ringtone', // Uses the phone's default ringtone
+                    vibration: true
+                });
+                console.log("[Auth] ✅ Call notification channel created");
+            }
+
+            // B. Force FCM Registration
             if (PushNotifications) {
                 console.log("[Auth] Forcing native FCM registration on login...");
                 PushNotifications.removeAllListeners();
