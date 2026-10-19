@@ -220,6 +220,32 @@
         </div>
     </div>
 
+    <!-- 🟢 Native Permission Startup Trigger for Capacitor -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(async () => {
+                try {
+                    const { Geolocation, PushNotifications } = window.Capacitor?.Plugins || {};
+                    
+                    if (Geolocation) {
+                        const geoStatus = await Geolocation.requestPermissions();
+                        console.log('Startup Geolocation permission:', geoStatus);
+                    }
+                    
+                    if (PushNotifications) {
+                        const pushStatus = await PushNotifications.requestPermissions();
+                        if (pushStatus.receive === 'granted') {
+                            await PushNotifications.register();
+                            console.log('Startup Push Notifications registered.');
+                        }
+                    }
+                } catch (err) {
+                    console.log('Capacitor native plugins not available in browser mode:', err);
+                }
+            }, 1500);
+        });
+    </script>
+
     <script type="module" src="driver/js/app.js"></script>
 </body>
 </html>
