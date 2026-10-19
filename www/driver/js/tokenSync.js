@@ -1,28 +1,25 @@
 // driver/js/tokenSync.js
-//
-// Single source of truth for keeping the driver's FCM token in sync
-// across `drivers/{uid}` and every active order for that driver.
+// Capacitor Native Android Token Sync
+// Keeps the driver's native FCM token in sync across the profile and ACCEPTED orders.
 
 import {
     collection, query, where, getDocs, doc, getDoc, setDoc, updateDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
-import { getDeviceToken } from "../../notificationManager.js";
 
-const ACTIVE_ORDER_STATUSES = [
+// 🟢 ONLY sync to orders the driver has actually accepted
+const ACCEPTED_ORDER_STATUSES = [
     "Accepted",
     "Picked Up",
-    "In Transit",
-    "Dispatched",
-    "Pending",
+    "In Transit"
 ];
 
 /**
- * Gets the current device token, writes it to the driver profile,
- * and updates every active order for that driver.
+ * Gets the native Capacitor token, writes it to the driver profile,
+ * and updates every ACCEPTED order for that driver.
  *
  * Idempotent — safe to call multiple times.
  */
-export async function syncDriverToken(db, messaging, driverId) {
+export async function syncDriverToken(db, driverId) {
     const result = { token: "", driverUpdated: false, ordersUpdated: 0, ok: false };
 
     if (!db || !driverId) {
@@ -30,22 +27,16 @@ export async function syncDriverToken(db, messaging, driverId) {
         return result;
     }
 
-    // 1. Get device token
-    let token = null;
-    try {
-        token = await getDeviceToken(messaging);
-    } catch (e) {
-        console.error("[TokenSync] getDeviceToken threw:", e.message);
-        return result;
-    }
+    // 1. Get native device token from Capacitor memory
+    const token = window.nativeFcmToken || window.currentDriverToken;
 
     if (!token) {
-        console.warn("[TokenSync] No device token — check VAPID key & service worker");
+        console.warn("[TokenSync] No native FCM token found in memory.");
         return result;
     }
     result.token = token;
 
-    // 2. Update driver profile — write the field explicitly (no helper ambiguity)
+    // 2. Update driver profile
     try {
         const driverRef = doc(db, "drivers", driverId);
         const driverSnap = await getDoc(driverRef);
@@ -55,7 +46,7 @@ export async function syncDriverToken(db, messaging, driverId) {
             await setDoc(driverRef, {
                 fcmToken: token,
                 fcmTokenUpdatedAt: serverTimestamp(),
-                fcmPlatform: "web",
+                fcmPlatform: "android",
             }, { merge: true });
 
             result.driverUpdated = true;
@@ -66,16 +57,15 @@ export async function syncDriverToken(db, messaging, driverId) {
         result.ok = true;
     } catch (e) {
         console.error("[TokenSync] ❌ Driver profile update failed:", e.code || e.message, e);
-        // Don't proceed to order update if the driver doc failed — rules issue likely
         return result;
     }
 
-    // 3. Update every active order (best-effort — failures here don't break the driver token)
+    // 3. Update every ACCEPTED order
     try {
         const q = query(
             collection(db, "orders"),
             where("driverId", "==", driverId),
-            where("status", "in", ACTIVE_ORDER_STATUSES)
+            where("status", "in", ACCEPTED_ORDER_STATUSES)
         );
         const snap = await getDocs(q);
 
@@ -98,7 +88,7 @@ export async function syncDriverToken(db, messaging, driverId) {
         }
 
         console.log(
-            `[TokenSync] Order sync: ${result.ordersUpdated} of ${snap.size} updated`
+            `[TokenSync] Accepted Order sync: ${result.ordersUpdated} of ${snap.size} updated`
         );
     } catch (e) {
         console.warn("[TokenSync] Order query failed:", e.code || e.message);
@@ -108,14 +98,14 @@ export async function syncDriverToken(db, messaging, driverId) {
 }
 
 /**
- * One-shot verification — compares driver doc against device token.
+ * One-shot verification — compares driver doc against native token.
  * Writes only if they differ. No listeners. No loops.
  */
-export async function verifyTokenOnce(db, messaging, driverId) {
+export async function verifyTokenOnce(db, driverId) {
     if (!db || !driverId) return;
 
     try {
-        const deviceToken = await getDeviceToken(messaging);
+        const deviceToken = window.nativeFcmToken || window.currentDriverToken;
         if (!deviceToken) return;
 
         const snap = await getDoc(doc(db, "drivers", driverId));
@@ -124,7 +114,7 @@ export async function verifyTokenOnce(db, messaging, driverId) {
         const stored = snap.data().fcmToken;
         if (stored !== deviceToken) {
             console.log("[TokenSync] Verify: mismatch — resyncing");
-            await syncDriverToken(db, messaging, driverId);
+            await syncDriverToken(db, driverId);
         }
     } catch (e) {
         console.warn("[TokenSync] Verify failed:", e.code || e.message);
@@ -132,30 +122,27 @@ export async function verifyTokenOnce(db, messaging, driverId) {
 }
 
 /**
- * Attaches a one-shot listener to `onTokenRefresh`.
- * Stores unsubscribe on window so logout can clean up.
+ * Attaches a listener to Capacitor's token registration event.
+ * If Android rotates the token, this will catch it and resync.
  */
-export function watchTokenRefresh(db, messaging, driverId) {
-    if (!db || !driverId) return Promise.resolve(() => {});
+export function watchTokenRefresh(db, driverId) {
+    if (!db || !driverId) return;
 
-    return import(
-        "https://www.gstatic.com/firebasejs/10.8.1/firebase-messaging.js"
-    ).then(({ onTokenRefresh }) => {
-        const unsubscribe = onTokenRefresh(messaging, async (newToken) => {
-            console.log("[TokenSync] Token rotated — resyncing everywhere");
-            try {
-                await syncDriverToken(db, messaging, driverId);
-            } catch (e) {
-                console.warn("[TokenSync] Refresh sync failed:", e.code || e.message);
-            }
-        });
-
-        // Prevent listener stacking across logins
-        if (typeof window !== "undefined") {
-            window.__unsubscribeTokenRefresh?.();
-            window.__unsubscribeTokenRefresh = unsubscribe;
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        const { PushNotifications } = window.Capacitor.Plugins || {};
+        if (PushNotifications) {
+            // Remove existing listener to prevent duplicates
+            PushNotifications.removeAllListeners();
+            
+            PushNotifications.addListener('registration', async (token) => {
+                console.log("[TokenSync] Native token rotated — resyncing everywhere");
+                window.nativeFcmToken = token.value;
+                try {
+                    await syncDriverToken(db, driverId);
+                } catch (e) {
+                    console.warn("[TokenSync] Refresh sync failed:", e.code || e.message);
+                }
+            });
         }
-
-        return unsubscribe;
-    });
+    }
 }
