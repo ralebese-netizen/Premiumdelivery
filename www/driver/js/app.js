@@ -167,9 +167,9 @@ function wireNativePushListeners() {
         console.error('[FCM/native] Registration error:', err);
     });
 
-    // 🟢 HANDLE PUSH WHEN APP IS OPEN (FOREGROUND)
+    // 🟢 HANDLE PUSH WHEN APP IS OPEN OR BACKGROUND
     PushNotifications.addListener('pushNotificationReceived', async (notification) => {
-        console.log('[FCM/native] Push received in foreground:', notification);
+        console.log('[FCM/native] Push received:', notification);
         
         if (notification.data && notification.data.type === 'incoming_call') {
             window.currentOrderId = notification.data.orderId;
@@ -177,14 +177,33 @@ function wireNativePushListeners() {
             const banner = document.getElementById('incoming-call-banner');
             if (banner) banner.style.display = 'block';
             
+            // Play HTML audio if app is currently in the foreground
             const ringtone = document.getElementById('order-ringtone');
             if (ringtone) {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
 
-            // 👇 VIBRATE IN FOREGROUND
-            if (navigator.vibrate) {
-                navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
+            // 🟢 TRIGGER NATIVE LOCAL NOTIFICATION (Forces OS-level vibration & sound)
+            if (LocalNotifications) {
+                try {
+                    await LocalNotifications.schedule({
+                        notifications: [
+                            {
+                                title: "Incoming Delivery Call! 🛵",
+                                body: "Tap to answer customer call",
+                                id: new Date().getTime(),
+                                channelId: 'bofelo_calls', // 👈 Links to your high-priority channel
+                                sound: 'ringtone',
+                                extra: {
+                                    orderId: notification.data.orderId
+                                }
+                            }
+                        ]
+                    });
+                    console.log('[Native] Alarm notification scheduled with vibration');
+                } catch (e) {
+                    console.warn('[Native] Failed to schedule local notification:', e);
+                }
             }
         }
     });
@@ -202,11 +221,6 @@ function wireNativePushListeners() {
             const ringtone = document.getElementById('order-ringtone');
             if (ringtone) {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
-            }
-
-            // 👇 VIBRATE WHEN TAPPED
-            if (navigator.vibrate) {
-                navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
         }
     });
