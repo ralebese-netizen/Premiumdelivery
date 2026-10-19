@@ -1,4 +1,6 @@
 // driver/js/app.js
+// Bootstrap: wires all modules together on page load.
+
 import { showToast, hideScreen } from "./ui.js";
 import { initBranding } from "./branding.js";
 import { initAuthFlow } from "./auth-flow.js";
@@ -12,13 +14,14 @@ window.showToast = showToast;
 window.openChatModal = openChatModal;
 window.closeChatModal = closeChatModal;
 
-// --- Capacitor plugins (safe dynamic import) ---
+// --- Capacitor plugins — safe dynamic import (browser mode won't crash) ---
 let PushNotifications = null;
 let Geolocation = null;
-const isNative = typeof window !== 'undefined'
-    && window.Capacitor
-    && typeof window.Capacitor.isNativePlatform === 'function'
-    && window.Capacitor.isNativePlatform();
+const isNative =
+    typeof window !== 'undefined' &&
+    window.Capacitor &&
+    typeof window.Capacitor.isNativePlatform === 'function' &&
+    window.Capacitor.isNativePlatform();
 
 async function loadCapacitorPlugins() {
     if (!isNative) {
@@ -40,17 +43,13 @@ function showBootFailure(err) {
     try {
         const splash = document.getElementById('boot-splash');
         if (splash) splash.style.display = 'none';
-
-        // Override the global !important lock for the login screen
         if (!document.getElementById('boot-unlock-style')) {
             const unlock = document.createElement('style');
             unlock.id = 'boot-unlock-style';
             unlock.textContent = '#login-screen { display: block !important; }';
             document.head.appendChild(unlock);
         }
-        if (window.showToast) {
-            window.showToast('Something went wrong. Please reload.');
-        }
+        if (window.showToast) window.showToast('Something went wrong. Please reload.');
     } catch (e) {
         console.error('[Driver] Even fail-safe failed:', e);
     }
@@ -60,15 +59,12 @@ function showBootFailure(err) {
 async function bootstrap() {
     console.log('[Driver] Bootstrap running');
     try {
-        // Load Capacitor plugins first (non-fatal if unavailable)
         await loadCapacitorPlugins();
 
-        // Request native permissions (non-blocking)
         requestNativePermissionsAtBoot().catch(e =>
             console.warn('[Driver] Permission request error:', e)
         );
 
-        // Each init wrapped individually — a broken module shouldn't kill the rest
         const safe = (name, fn) => {
             try { fn(); } catch (e) {
                 console.error(`[Driver] ${name} failed:`, e);
@@ -81,7 +77,6 @@ async function bootstrap() {
         safe('initWithdrawal', initWithdrawal);
         safe('initPWA', initPWA);
 
-        // Profile modal wiring
         const openBtn = document.getElementById('open-profile-btn');
         const closeBtn = document.getElementById('close-profile-btn');
         if (openBtn) openBtn.addEventListener('click', () => {
@@ -91,7 +86,6 @@ async function bootstrap() {
             document.getElementById('profile-modal').style.display = 'none';
         });
 
-        // Auth flow is the one that hides the splash
         initAuthFlow(handleIncomingCallState);
 
         setupAudioUnlock();
@@ -129,46 +123,58 @@ async function requestNativePermissionsAtBoot() {
     }
 }
 
-// --- Native push registration listener ---
+// --- Wire native push token listener ---
 function wireNativePushListeners() {
     if (!isNative || !PushNotifications) return;
+
     PushNotifications.addListener('registration', async (token) => {
-        console.log('Native Push Token:', token.value);
+        console.log('[FCM/native] Token received:', token.value.slice(0, 20) + '...');
         if (window.receiveNativeFcmToken) {
-            window.receiveNativeFcmToken(token.value);
+            await window.receiveNativeFcmToken(token.value);
         }
     });
+
     PushNotifications.addListener('registrationError', (err) => {
-        console.error('[Native Push] Registration error:', err);
+        console.error('[FCM/native] Registration error:', err);
     });
 }
 
 // --- Token syncing to Firestore ---
 window.receiveNativeFcmToken = async (token) => {
-    console.log('Received Native FCM Token:', token);
+    if (!token) return;
+    console.log('[FCM/native] Token received:', token.slice(0, 20) + '...');
     window.nativeFcmToken = token;
     window.currentDriverToken = token;
     await window.syncNativeTokenToFirestore();
 };
 
 window.syncNativeTokenToFirestore = async () => {
-    if (!window.nativeFcmToken || !window.currentDriverId) {
-        console.log('[Token sync] Deferred — waiting for driver ID');
-        return;
+    if (!window.nativeFcmToken) {
+        console.log('[FCM/native] No token yet — will retry after it arrives');
+        return { ok: false, reason: 'no-token' };
     }
+    if (!window.currentDriverId) {
+        console.log('[FCM/native] No driver ID yet — will retry after login');
+        return { ok: false, reason: 'no-driver' };
+    }
+
     try {
-        const { doc, setDoc } = await import(
+        const { doc, setDoc, serverTimestamp } = await import(
             "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js"
         );
         const { db } = await import("./firebase-init.js");
-        await setDoc(
-            doc(db, "drivers", window.currentDriverId),
-            { fcmToken: window.nativeFcmToken },
-            { merge: true }
-        );
-        console.log('[Token sync] Saved for driver:', window.currentDriverId);
+
+        await setDoc(doc(db, "drivers", window.currentDriverId), {
+            fcmToken: window.nativeFcmToken,
+            fcmPlatform: 'android',
+            fcmTokenUpdatedAt: serverTimestamp(),
+        }, { merge: true });
+
+        console.log('[FCM/native] ✅ Token synced to Firestore for driver:', window.currentDriverId);
+        return { ok: true };
     } catch (e) {
-        console.warn('[Token sync] Failed:', e.message);
+        console.error('[FCM/native] ❌ Token sync failed:', e.code || e.message, e);
+        return { ok: false, reason: 'firestore-error', error: e };
     }
 };
 
@@ -241,19 +247,15 @@ function handleIncomingCallFromUrl() {
             document.getElementById('notification-chime');
         if (!ringtone) return;
 
-        const tryPlay = () => {
-            try {
-                ringtone.currentTime = 0;
-                const p = ringtone.play();
-                if (p && typeof p.then === 'function') {
-                    p.catch((e) => console.warn('[Driver] URL ringtone blocked:', e.message));
-                }
-            } catch (e) {
-                console.warn('[Driver] URL ringtone threw:', e.message);
+        try {
+            ringtone.currentTime = 0;
+            const p = ringtone.play();
+            if (p && typeof p.then === 'function') {
+                p.catch((e) => console.warn('[Driver] URL ringtone blocked:', e.message));
             }
-        };
-
-        tryPlay();
+        } catch (e) {
+            console.warn('[Driver] URL ringtone threw:', e.message);
+        }
     } catch (e) {
         console.warn('[Driver] handleIncomingCallFromUrl failed:', e.message);
     }
