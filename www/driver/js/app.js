@@ -17,6 +17,7 @@ window.closeChatModal = closeChatModal;
 // --- Capacitor plugins — safe dynamic import (browser mode won't crash) ---
 let PushNotifications = null;
 let Geolocation = null;
+let LocalNotifications = null;
 const isNative =
     typeof window !== 'undefined' &&
     window.Capacitor &&
@@ -31,6 +32,7 @@ async function loadCapacitorPlugins() {
     try {
         ({ PushNotifications } = await import('@capacitor/push-notifications'));
         ({ Geolocation } = await import('@capacitor/geolocation'));
+        ({ LocalNotifications } = await import('@capacitor/local-notifications'));
         console.log('[Driver] Capacitor plugins loaded');
     } catch (e) {
         console.warn('[Driver] Capacitor plugin load failed:', e.message);
@@ -99,10 +101,11 @@ async function bootstrap() {
     }
 }
 
-// --- Native permissions ---
+// --- Native permissions & Call Channel Setup ---
 async function requestNativePermissionsAtBoot() {
     if (!isNative) return;
     try {
+        // 1. Request Push Notifications
         if (PushNotifications) {
             let perm = await PushNotifications.checkPermissions();
             if (perm.receive === 'prompt') {
@@ -112,6 +115,22 @@ async function requestNativePermissionsAtBoot() {
                 await PushNotifications.register();
             }
         }
+
+        // 2. Create the high-priority Call Channel
+        if (LocalNotifications) {
+            await LocalNotifications.createChannel({
+                id: 'bofelo_calls',
+                name: 'Incoming Calls',
+                description: 'Ringing for customer calls',
+                importance: 5, // High importance
+                visibility: 1, // Public (shows on lock screen)
+                sound: 'ringtone',
+                vibration: true
+            });
+            console.log('[Native Boot] ✅ Call notification channel created');
+        }
+
+        // 3. Request Location
         if (Geolocation) {
             const loc = await Geolocation.checkPermissions();
             if (loc.location === 'prompt') {
@@ -123,7 +142,7 @@ async function requestNativePermissionsAtBoot() {
     }
 }
 
-// --- Wire native push token listener ---
+// --- Wire native push listeners ---
 function wireNativePushListeners() {
     if (!isNative || !PushNotifications) return;
 
@@ -137,26 +156,53 @@ function wireNativePushListeners() {
     PushNotifications.addListener('registrationError', (err) => {
         console.error('[FCM/native] Registration error:', err);
     });
+
+    // 🟢 HANDLE PUSH WHEN APP IS OPEN (FOREGROUND)
+    PushNotifications.addListener('pushNotificationReceived', async (notification) => {
+        console.log('[FCM/native] Push received in foreground:', notification);
+        
+        if (notification.data && notification.data.type === 'incoming_call') {
+            window.currentOrderId = notification.data.orderId;
+            
+            const banner = document.getElementById('incoming-call-banner');
+            if (banner) banner.style.display = 'block';
+            
+            const ringtone = document.getElementById('order-ringtone');
+            if (ringtone) {
+                ringtone.play().catch(e => console.warn("Audio blocked:", e));
+            }
+        }
+    });
+
+    // 🟢 HANDLE PUSH WHEN USER TAPS IT (BACKGROUND/CLOSED)
+    PushNotifications.addListener('pushNotificationActionPerformed', async (action) => {
+        console.log('[FCM/native] Push tapped:', action);
+        
+        if (action.notification.data && action.notification.data.type === 'incoming_call') {
+            window.currentOrderId = action.notification.data.orderId;
+            
+            const banner = document.getElementById('incoming-call-banner');
+            if (banner) banner.style.display = 'block';
+
+            const ringtone = document.getElementById('order-ringtone');
+            if (ringtone) {
+                ringtone.play().catch(e => console.warn("Audio blocked:", e));
+            }
+        }
+    });
 }
 
 // --- Token syncing to Firestore ---
 window.receiveNativeFcmToken = async (token) => {
     if (!token) return;
-    console.log('[FCM/native] Token received:', token.slice(0, 20) + '...');
     window.nativeFcmToken = token;
     window.currentDriverToken = token;
     await window.syncNativeTokenToFirestore();
 };
 
 window.syncNativeTokenToFirestore = async () => {
-    if (!window.nativeFcmToken) {
-        console.log('[FCM/native] No token yet — will retry after it arrives');
-        return { ok: false, reason: 'no-token' };
-    }
-    if (!window.currentDriverId) {
-        console.log('[FCM/native] No driver ID yet — will retry after login');
-        return { ok: false, reason: 'no-driver' };
-    }
+    if (!window.nativeFcmToken) return { ok: false, reason: 'no-token' };
+    if (!window.currentDriverId) return { ok: false, reason: 'no-driver' };
 
     try {
         const { doc, setDoc, serverTimestamp } = await import(
@@ -207,10 +253,7 @@ function setupServiceWorkerListener() {
     navigator.serviceWorker.addEventListener('message', (event) => {
         const data = event.data;
         if (!data || data.type !== 'play-ringtone') return;
-        console.log('[Driver] SW requested ringtone', { orderId: data.orderId });
-        const ringtone =
-            document.getElementById('order-ringtone') ||
-            document.getElementById('notification-chime');
+        const ringtone = document.getElementById('order-ringtone') || document.getElementById('notification-chime');
         if (!ringtone) return;
         try {
             ringtone.currentTime = 0;
@@ -242,9 +285,7 @@ function handleIncomingCallFromUrl() {
             window.dispatchEvent(new CustomEvent('bofeloOrderActive', { detail: orderId }));
         }
 
-        const ringtone =
-            document.getElementById('order-ringtone') ||
-            document.getElementById('notification-chime');
+        const ringtone = document.getElementById('order-ringtone') || document.getElementById('notification-chime');
         if (!ringtone) return;
 
         try {
