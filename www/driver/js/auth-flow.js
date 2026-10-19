@@ -1,7 +1,7 @@
 // driver/js/auth-flow.js
 // Login, registration, and the Firebase Auth state listener.
 
-import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+import { doc, onSnapshot, collection, query, where, getDocs, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import { db, auth, storage } from "./firebase-init.js";
 import {
@@ -17,11 +17,15 @@ import { showToast, showScreen, hideScreen } from "./ui.js";
 import { getFleetName } from "./branding.js";
 import { startHeartbeat, stopHeartbeat } from "../../presence.js";
 
+// 🟢 IMPORT THE NEW CAPACITOR TOKEN SYNC
+import { syncDriverToken, watchTokenRefresh } from "./tokenSync.js";
+
 let orderSystemInitialized = false;
 const SERVER_SNAPSHOT_FALLBACK_MS = 3000;
 
-// 🟢 Native token retry timer
+// 🟢 Background timers
 let nativeTokenRetryTimer = null;
+let orderTokenSyncInterval = null;
 
 export function initAuthFlow(onCallStateChange) {
     document.getElementById('login-btn').addEventListener('click', handleLoginClick);
@@ -120,44 +124,33 @@ function hideSplash() {
     if (splash) splash.style.display = 'none';
 }
 
-// 🟢 Retry native token sync every 2s until it lands or 60s pass
-function scheduleNativeTokenRetry() {
-    if (nativeTokenRetryTimer) {
-        clearInterval(nativeTokenRetryTimer);
-        nativeTokenRetryTimer = null;
-    }
+// 🟢 AUTO-SYNC TOKEN TO ACCEPTED ORDERS (Runs every 30s)
+function startActiveOrderTokenSync(userId) {
+    if (orderTokenSyncInterval) clearInterval(orderTokenSyncInterval);
 
-    let attempts = 0;
-    const MAX_ATTEMPTS = 30;
+    orderTokenSyncInterval = setInterval(async () => {
+        if (!window.currentDriverId || !window.currentDriverToken) return;
 
-    nativeTokenRetryTimer = setInterval(async () => {
-        attempts++;
-
-        if (!window.currentDriverId) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-            return;
-        }
-
-        if (window.nativeFcmToken) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-
-            try {
-                const result = await window.syncNativeTokenToFirestore();
-                console.log('[Auth] ✅ Delayed native token sync result:', result);
-            } catch (e) {
-                console.error('[Auth] ❌ Delayed native token sync threw:', e);
+        try {
+            const q = query(
+                collection(db, "orders"),
+                where("driverId", "==", userId),
+                where("status", "in", ["Accepted", "Picked Up", "In Transit"])
+            );
+            const snap = await getDocs(q);
+            
+            for (const orderDoc of snap.docs) {
+                if (orderDoc.data().driverFcmToken !== window.currentDriverToken) {
+                    console.log(`[Auto-Sync] Updating FCM token on accepted order ${orderDoc.id}`);
+                    await updateDoc(doc(db, "orders", orderDoc.id), {
+                        driverFcmToken: window.currentDriverToken
+                    });
+                }
             }
-            return;
+        } catch (e) {
+            console.warn("[Auto-Sync] Failed:", e);
         }
-
-        if (attempts >= MAX_ATTEMPTS) {
-            clearInterval(nativeTokenRetryTimer);
-            nativeTokenRetryTimer = null;
-            console.warn('[Auth] ⚠️ Native FCM token never arrived after 60s');
-        }
-    }, 2000);
+    }, 30000); 
 }
 
 async function handleLoggedIn(user, onCallStateChange) {
@@ -170,26 +163,23 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     window.currentDriverId = user.uid;
 
-    // 🟢 FORCE FCM REGISTRATION ON EVERY LOGIN
-    // This fixes the bug where the token is only saved on the very first app install.
+    // 🟢 1. FORCE NATIVE FCM REGISTRATION ON LOGIN
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         try {
             const { PushNotifications } = window.Capacitor.Plugins || {};
             if (PushNotifications) {
                 console.log("[Auth] Forcing native FCM registration on login...");
-                
-                // Clean up old listeners to prevent duplicates
                 PushNotifications.removeAllListeners();
                 
-                // Attach listener to catch the token
                 PushNotifications.addListener('registration', async (token) => {
-                    console.log('[FCM/native] Token received on login:', token.value.slice(0, 20) + '...');
-                    if (window.receiveNativeFcmToken) {
-                        await window.receiveNativeFcmToken(token.value);
-                    }
+                    console.log('[FCM/native] Token received:', token.value.slice(0, 20) + '...');
+                    window.nativeFcmToken = token.value;
+                    window.currentDriverToken = token.value;
+                    
+                    // Sync it immediately using the new module
+                    await syncDriverToken(db, user.uid);
                 });
 
-                // This triggers Android to return the cached token immediately
                 await PushNotifications.register();
             }
         } catch (err) {
@@ -197,21 +187,11 @@ async function handleLoggedIn(user, onCallStateChange) {
         }
     }
 
-    // 🟢 NATIVE ONLY — attempt token sync (retries automatically if not ready)
-    if (window.syncNativeTokenToFirestore) {
-        try {
-            const syncResult = await window.syncNativeTokenToFirestore();
-            console.log('[Auth] Initial native token sync:', syncResult);
+    // 🟢 2. START TOKEN REFRESH LISTENER
+    watchTokenRefresh(db, user.uid);
 
-            if (syncResult && syncResult.ok === false && syncResult.reason === 'no-token') {
-                console.log('[Auth] Waiting for native FCM token — starting retry');
-                scheduleNativeTokenRetry();
-            }
-        } catch (e) {
-            console.warn('[Auth] Initial native token sync threw:', e);
-            scheduleNativeTokenRetry();
-        }
-    }
+    // 🟢 3. START THE 30-SECOND ACCEPTED-ORDER SYNC LOOP
+    startActiveOrderTokenSync(user.uid);
 
     ProfileManager.init(db, user.uid, "driver");
     ProfileManager.logoutHook = async () => {
@@ -220,8 +200,6 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     startHeartbeat(db, 'driver', user.uid);
 
-    // 🟢 On native, the token comes from Capacitor's registration event
-    //    and lands in window.nativeFcmToken. Use it directly.
     const token = window.nativeFcmToken || "";
     window.currentDriverToken = token;
 
@@ -305,6 +283,12 @@ function handleLoggedOut() {
         clearInterval(nativeTokenRetryTimer);
         nativeTokenRetryTimer = null;
     }
+    
+    // 🟢 CLEAR THE AUTO-SYNC TIMER
+    if (orderTokenSyncInterval) {
+        clearInterval(orderTokenSyncInterval);
+        orderTokenSyncInterval = null;
+    }
 
     stopHeartbeat();
     hideSplash();
@@ -321,6 +305,13 @@ export async function logoutDriver() {
         clearInterval(nativeTokenRetryTimer);
         nativeTokenRetryTimer = null;
     }
+    
+    // 🟢 CLEAR THE AUTO-SYNC TIMER
+    if (orderTokenSyncInterval) {
+        clearInterval(orderTokenSyncInterval);
+        orderTokenSyncInterval = null;
+    }
+
     stopHeartbeat();
     stopTracking();
     await signOut(auth);
@@ -334,7 +325,6 @@ window.enableNotifications = async () => {
         const banner = document.getElementById('notif-banner');
         if (banner) banner.style.display = 'none';
 
-        // Native: re-attempt permission + register
         try {
             const { PushNotifications } = window.Capacitor.Plugins || {};
             if (PushNotifications) {
@@ -346,11 +336,8 @@ window.enableNotifications = async () => {
                     await PushNotifications.register();
                     showToast("Native notifications active.");
 
-                    if (window.syncNativeTokenToFirestore) {
-                        const r = await window.syncNativeTokenToFirestore();
-                        if (r && r.ok === false && r.reason === 'no-token') {
-                            scheduleNativeTokenRetry();
-                        }
+                    if (window.currentDriverId) {
+                        await syncDriverToken(db, window.currentDriverId);
                     }
                 } else {
                     showToast("⚠️ Permission denied in device settings.");
