@@ -3,15 +3,13 @@
 
 import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-import { db, auth, storage, messaging } from "./firebase-init.js";
+import { db, auth, storage } from "./firebase-init.js";
 import {
     monitorAuthState,
     loginUser,
     registerDriver,
     resetPassword,
 } from "../../authManager.js";
-import { getDeviceToken, storeTokenInFirestore, setupForegroundListener } from "../../notificationManager.js";
-import { syncDriverToken, watchTokenRefresh, verifyTokenOnce } from "./tokenSync.js";
 import { ProfileManager } from "../../profileManager.js";
 import { startTracking, stopTracking } from "../../trackingManager.js";
 import { initializeOrderSystem } from "../../orderManager.js";
@@ -22,7 +20,7 @@ import { startHeartbeat, stopHeartbeat } from "../../presence.js";
 let orderSystemInitialized = false;
 const SERVER_SNAPSHOT_FALLBACK_MS = 3000;
 
-// 🟢 Native token retry timer — cleared on logout
+// 🟢 Native token retry timer
 let nativeTokenRetryTimer = null;
 
 export function initAuthFlow(onCallStateChange) {
@@ -53,7 +51,6 @@ export function initAuthFlow(onCallStateChange) {
     document.getElementById('logout-pending-btn').addEventListener('click', logoutDriver);
     document.getElementById('logout-suspended-btn').addEventListener('click', logoutDriver);
 
-    setupForegroundListener(messaging, 'order-ringtone');
     monitorAuthState(auth, (user) => handleLoggedIn(user, onCallStateChange), handleLoggedOut);
 }
 
@@ -123,7 +120,7 @@ function hideSplash() {
     if (splash) splash.style.display = 'none';
 }
 
-// 🟢 Retries native token sync every 2s until token arrives or 60s pass
+// 🟢 Retry native token sync every 2s until it lands or 60s pass
 function scheduleNativeTokenRetry() {
     if (nativeTokenRetryTimer) {
         clearInterval(nativeTokenRetryTimer);
@@ -158,7 +155,7 @@ function scheduleNativeTokenRetry() {
         if (attempts >= MAX_ATTEMPTS) {
             clearInterval(nativeTokenRetryTimer);
             nativeTokenRetryTimer = null;
-            console.warn('[Auth] ⚠️ Native FCM token never arrived after 60s — check android setup');
+            console.warn('[Auth] ⚠️ Native FCM token never arrived after 60s');
         }
     }, 2000);
 }
@@ -173,22 +170,20 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     window.currentDriverId = user.uid;
 
-    // 🟢 Attempt native token sync (may no-op if token hasn't arrived yet)
+    // 🟢 NATIVE ONLY — attempt token sync (retries automatically if not ready)
     if (window.syncNativeTokenToFirestore) {
         try {
             const syncResult = await window.syncNativeTokenToFirestore();
             console.log('[Auth] Initial native token sync:', syncResult);
 
             if (syncResult && syncResult.ok === false && syncResult.reason === 'no-token') {
-                console.log('[Auth] Waiting for native FCM token — setting up retry...');
+                console.log('[Auth] Waiting for native FCM token — starting retry');
                 scheduleNativeTokenRetry();
             }
         } catch (e) {
             console.warn('[Auth] Initial native token sync threw:', e);
             scheduleNativeTokenRetry();
         }
-    } else {
-        console.log('[Auth] syncNativeTokenToFirestore not defined — web-only mode?');
     }
 
     ProfileManager.init(db, user.uid, "driver");
@@ -198,70 +193,19 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     startHeartbeat(db, 'driver', user.uid);
 
-    // 🟢 Web FCM token fetch — wait for SW registration first
-    let token = null;
-    try {
-        if (window.__swRegistrationPromise) {
-            await window.__swRegistrationPromise;
-        }
-        token = await getDeviceToken(messaging);
-    } catch (e) {
-        console.warn('[Auth] getDeviceToken failed:', e.message);
-    }
-
-    // If token is empty but permission is granted, retry once after 3s
-    // (handles the case where SW is still installing on first visit)
-    if (!token && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        console.log('[Auth] Empty token but permission granted — retrying in 3s');
-        await new Promise(r => setTimeout(r, 3000));
-        try {
-            token = await getDeviceToken(messaging);
-        } catch (e) {
-            console.warn('[Auth] Retry failed:', e.message);
-        }
-    }
-
-    window.currentDriverToken = token || "";
+    // 🟢 On native, the token comes from Capacitor's registration event
+    //    and lands in window.nativeFcmToken. Use it directly.
+    const token = window.nativeFcmToken || "";
+    window.currentDriverToken = token;
 
     const notifBanner = document.getElementById('notif-banner');
-
-    if (token) {
-        if (notifBanner) notifBanner.style.display = 'none';
-
-        // ✅ Await initial save so we know it landed
-        try {
-            await syncDriverToken(db, messaging, user.uid);
-            console.log('[Auth] ✅ Web FCM token synced to Firestore');
-        } catch (e) {
-            console.error('[Auth] ❌ Initial web token sync failed:', e.code || e.message);
-
-            setTimeout(() => {
-                syncDriverToken(db, messaging, user.uid)
-                    .then(() => console.log('[Auth] ✅ Web token sync retry succeeded'))
-                    .catch((e2) => console.error('[Auth] ❌ Web token retry failed:', e2.code || e2.message));
-            }, 3000);
-        }
-
-        watchTokenRefresh(db, messaging, user.uid).catch((e) =>
-            console.warn("[Auth] Token refresh listener failed:", e)
-        );
-
-        document.addEventListener("visibilitychange", () => {
-            if (document.visibilityState === "visible") {
-                verifyTokenOnce(db, messaging, user.uid).catch((e) =>
-                    console.warn("[Auth] Foreground verify failed:", e)
-                );
-            }
-        });
-    } else {
-        if (notifBanner) notifBanner.style.display = 'flex';
-    }
+    if (notifBanner) notifBanner.style.display = token ? 'none' : 'flex';
 
     let firstServerSnapshot = false;
 
     const slowServerFallback = setTimeout(() => {
         if (!firstServerSnapshot) {
-            console.warn('[Auth] Server snapshot slow — proceeding with cache data');
+            console.warn('[Auth] Server snapshot slow — proceeding');
             firstServerSnapshot = true;
             hideSplash();
         }
@@ -275,13 +219,8 @@ async function handleLoggedIn(user, onCallStateChange) {
             hideSplash();
         }
 
-        if (docSnap.metadata.fromCache) {
-            return;
-        }
-
-        if (!docSnap.exists()) {
-            return;
-        }
+        if (docSnap.metadata.fromCache) return;
+        if (!docSnap.exists()) return;
 
         const data = docSnap.data();
         const status = data.status || 'pending';
@@ -335,7 +274,6 @@ async function handleLoggedIn(user, onCallStateChange) {
 }
 
 function handleLoggedOut() {
-    // 🟢 Clear any pending native token retry
     if (nativeTokenRetryTimer) {
         clearInterval(nativeTokenRetryTimer);
         nativeTokenRetryTimer = null;
@@ -363,73 +301,39 @@ export async function logoutDriver() {
     window.location.reload();
 }
 
+// Native banner dismiss + retry trigger (called from HTML onclick)
 window.enableNotifications = async () => {
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
         const banner = document.getElementById('notif-banner');
         if (banner) banner.style.display = 'none';
-        showToast("Native notifications are active.");
 
-        if (window.syncNativeTokenToFirestore) {
-            const r = await window.syncNativeTokenToFirestore();
-            if (r && r.ok === false && r.reason === 'no-token') {
-                console.log('[Auth] Native token not ready — starting retry');
-                scheduleNativeTokenRetry();
+        // Native: re-attempt permission + register
+        try {
+            const { PushNotifications } = window.Capacitor.Plugins || {};
+            if (PushNotifications) {
+                let perm = await PushNotifications.checkPermissions();
+                if (perm.receive !== 'granted') {
+                    perm = await PushNotifications.requestPermissions();
+                }
+                if (perm.receive === 'granted') {
+                    await PushNotifications.register();
+                    showToast("Native notifications active.");
+
+                    if (window.syncNativeTokenToFirestore) {
+                        const r = await window.syncNativeTokenToFirestore();
+                        if (r && r.ok === false && r.reason === 'no-token') {
+                            scheduleNativeTokenRetry();
+                        }
+                    }
+                } else {
+                    showToast("⚠️ Permission denied in device settings.");
+                }
             }
+        } catch (e) {
+            console.warn('[Auth] Native enableNotifications failed:', e);
         }
         return;
     }
 
-    if (!('Notification' in window) || typeof window.Notification === 'undefined') {
-        return showToast("⚠️ Notifications are not supported in this browser. Try opening in Chrome.");
-    }
-
-    try {
-        // Use the prompting function that returns { token, error }
-        const { requestNotificationPermissionAndToken } = await import('../../notificationManager.js');
-        const { token, error } = await requestNotificationPermissionAndToken(messaging);
-
-        if (error) {
-            const msg = {
-                denied: "⚠️ Notifications blocked. Please check browser settings.",
-                service_worker_failed: "⚠️ Service worker failed to register. Please reload.",
-                failed_to_generate: "⚠️ Could not generate token. Try refreshing.",
-                unsupported: "⚠️ Notifications are not supported in this browser.",
-                exception: "⚠️ Unexpected error. Please reload.",
-            }[error] || "⚠️ Could not enable notifications.";
-            showToast(msg);
-            return;
-        }
-
-        window.currentDriverToken = token;
-
-        if (token && window.currentDriverId) {
-            try {
-                await syncDriverToken(db, messaging, window.currentDriverId);
-                const banner = document.getElementById('notif-banner');
-                if (banner) banner.style.display = 'none';
-                console.log('[Auth] ✅ Manual token sync succeeded');
-                showToast("✅ Notifications enabled! Calls will now connect.");
-            } catch (e) {
-                console.error('[Auth] ❌ Manual token sync failed:', e.code || e.message);
-                showToast("⚠️ Token saved locally but Firestore write failed. Retrying...");
-
-                setTimeout(() => {
-                    syncDriverToken(db, messaging, window.currentDriverId)
-                        .then(() => {
-                            console.log('[Auth] ✅ Manual retry succeeded');
-                            showToast("✅ Notifications fully enabled!");
-                        })
-                        .catch((e2) => {
-                            console.error('[Auth] ❌ Manual retry failed:', e2.code || e2.message);
-                            showToast("⚠️ Could not save token. Check Firestore rules.");
-                        });
-                }, 3000);
-            }
-        } else {
-            showToast("⚠️ Failed to generate token. Please try again.");
-        }
-    } catch (error) {
-        console.error("[Auth] Error enabling notifications:", error);
-        showToast("⚠️ Error requesting permission.");
-    }
+    showToast("Open this app on the device to enable notifications.");
 };
