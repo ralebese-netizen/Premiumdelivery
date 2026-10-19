@@ -7,27 +7,52 @@ const VAPID_KEY = 'BJjRi0UCeIH3J2CYmiti-zMtJK4vicKrD1CHzVWke9uMNJKzNyK3bMrYN_Lxy
 const LAMBDA_URL = "https://hem2omj47a.execute-api.eu-north-1.amazonaws.com/default/driver-call-notification";
 
 /**
- * 🟢 Helper to wait for the existing sw.js to be ready.
- * We do NOT register a new /firebase-messaging-sw.js because your
- * app already registers './sw.js' in pwa.js.
+ * 🟢 Get the SW registration, using the cached promise from pwa.js
+ * when available. Falls back to navigator.serviceWorker.ready with
+ * a hard timeout so login never hangs if the SW fails to register.
  */
 async function getExistingSWRegistration() {
-    if (!('serviceWorker' in navigator)) return null;
+    if (!('serviceWorker' in navigator)) {
+        console.error('[NotificationManager] SW not supported');
+        return null;
+    }
+
     try {
-        // navigator.serviceWorker.ready resolves when the SW is active
-        // and controlling the current page.
-        return await navigator.serviceWorker.ready;
-    } catch (error) {
-        console.error("[NotificationManager] Service worker not ready:", error);
+        // 1. Fastest path — pwa.js already registered and cached the promise
+        if (window.__swRegistrationPromise) {
+            const reg = await window.__swRegistrationPromise;
+            if (reg?.active) {
+                console.log('[NotificationManager] Using cached SW:', reg.active.scriptURL);
+                return reg;
+            }
+        }
+
+        // 2. Fallback with a hard timeout so we never hang
+        const timeout = new Promise((_, rej) =>
+            setTimeout(() => rej(new Error('SW ready timeout (8s)')), 8000)
+        );
+
+        const reg = await Promise.race([
+            navigator.serviceWorker.ready,
+            timeout
+        ]);
+
+        console.log('[NotificationManager] SW ready:', {
+            scope: reg.scope,
+            url: reg.active?.scriptURL,
+            state: reg.active?.state,
+        });
+        return reg;
+
+    } catch (err) {
+        console.error('[NotificationManager] SW ready FAILED:', err.message);
         return null;
     }
 }
 
 /**
- * 🟢 PERMISSION & TOKEN FETCH FUNCTION
- * 
- * Triggers the browser notification prompt and safely fetches the FCM token.
- * Must be called from a direct user click event.
+ * 🟢 Request permission + fetch token (must be called from a user click).
+ * Uses the FCM-ready sw.js which is already registered by pwa.js.
  */
 export async function requestNotificationPermissionAndToken(messaging) {
     if (!messaging) return { token: "", error: "Messaging not initialized" };
@@ -37,30 +62,32 @@ export async function requestNotificationPermissionAndToken(messaging) {
     }
 
     try {
-        // 1. Trigger the prompt (If already granted, this resolves instantly)
+        // 1. Prompt for permission (no-op if already granted)
         const permission = await window.Notification.requestPermission();
-        
         if (permission !== 'granted') {
             return { token: "", error: "denied" };
         }
 
-        // 2. Ensure the existing sw.js is active
+        // 2. Get the registered sw.js
         const swRegistration = await getExistingSWRegistration();
         if (!swRegistration) {
             return { token: "", error: "service_worker_failed" };
         }
 
-        // 3. Fetch the token with a short retry loop
+        // 3. Fetch token with retry (SW may still be activating)
         let token = "";
         for (let i = 0; i < 3; i++) {
             try {
-                token = await getToken(messaging, { 
-                    vapidKey: VAPID_KEY, 
-                    serviceWorkerRegistration: swRegistration 
+                token = await getToken(messaging, {
+                    vapidKey: VAPID_KEY,
+                    serviceWorkerRegistration: swRegistration,
                 });
-                if (token) break;
+                if (token) {
+                    console.log('[NotificationManager] ✅ Token fetched on attempt', i + 1);
+                    break;
+                }
             } catch (err) {
-                console.warn(`[NotificationManager] Token attempt ${i + 1} failed:`, err);
+                console.warn(`[NotificationManager] Token attempt ${i + 1} failed:`, err.code || err.message);
             }
             await new Promise(r => setTimeout(r, 1500));
         }
@@ -78,12 +105,11 @@ export async function requestNotificationPermissionAndToken(messaging) {
 }
 
 /**
- * Retrieves this device's FCM token silently (without prompting).
- * Used during login to check if we already have permission.
+ * Silent token retrieval — only returns a token if permission is already granted.
  */
 export async function getDeviceToken(messaging) {
     if (!messaging) return "";
-    
+
     if (!('Notification' in window) || typeof window.Notification === 'undefined') return "";
     if (window.Notification.permission !== 'granted') return "";
 
@@ -91,24 +117,36 @@ export async function getDeviceToken(messaging) {
         const swRegistration = await getExistingSWRegistration();
         if (!swRegistration) return "";
 
-        return await getToken(messaging, { 
-            vapidKey: VAPID_KEY, 
-            serviceWorkerRegistration: swRegistration 
+        const token = await getToken(messaging, {
+            vapidKey: VAPID_KEY,
+            serviceWorkerRegistration: swRegistration,
         });
+        return token || "";
     } catch (error) {
-        console.warn("[NotificationManager] Silent token fetch failed:", error);
+        console.warn("[NotificationManager] Silent token fetch failed:", error.code || error.message);
         return "";
     }
 }
 
+/**
+ * Writes `fcmToken` to Firestore. Throws on failure so callers know.
+ */
 export async function storeTokenInFirestore(db, userId, token) {
-    if (!db || !userId || !token) return;
-    try {
-        const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js");
-        await setDoc(doc(db, "drivers", userId), { fcmToken: token }, { merge: true });
-    } catch (error) {
-        console.error("[NotificationManager] Failed to store token:", error);
+    if (!db || !userId || !token) {
+        throw new Error('[NotificationManager] Missing arg to storeTokenInFirestore');
     }
+    const { doc, setDoc, serverTimestamp } = await import(
+        "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js"
+    );
+    await setDoc(
+        doc(db, "drivers", userId),
+        {
+            fcmToken: token,
+            fcmTokenUpdatedAt: serverTimestamp(),
+            fcmPlatform: 'web',
+        },
+        { merge: true }
+    );
 }
 
 export function setupForegroundListener(messaging, ringtoneElementId = null) {
