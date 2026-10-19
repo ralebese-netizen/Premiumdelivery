@@ -22,6 +22,9 @@ import { startHeartbeat, stopHeartbeat } from "../../presence.js";
 let orderSystemInitialized = false;
 const SERVER_SNAPSHOT_FALLBACK_MS = 3000;
 
+// 🟢 Native token retry timer — cleared on logout
+let nativeTokenRetryTimer = null;
+
 export function initAuthFlow(onCallStateChange) {
     document.getElementById('login-btn').addEventListener('click', handleLoginClick);
     document.getElementById('register-btn').addEventListener('click', handleRegisterClick);
@@ -98,7 +101,7 @@ async function handleRegisterClick() {
         auth, db, storage, email, pass, driverData,
         idPhotoFile, selfieFile, document.getElementById('reg-status')
     );
-    
+
     if (result.success) {
         hideScreen('signup-screen');
         showToast("Registration successful! Checking status...");
@@ -120,19 +123,72 @@ function hideSplash() {
     if (splash) splash.style.display = 'none';
 }
 
+// 🟢 NEW: Retries native token sync every 2s until token arrives or 60s pass
+function scheduleNativeTokenRetry() {
+    if (nativeTokenRetryTimer) {
+        clearInterval(nativeTokenRetryTimer);
+        nativeTokenRetryTimer = null;
+    }
+
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30; // 30 × 2s = 60s
+
+    nativeTokenRetryTimer = setInterval(async () => {
+        attempts++;
+
+        if (!window.currentDriverId) {
+            clearInterval(nativeTokenRetryTimer);
+            nativeTokenRetryTimer = null;
+            return;
+        }
+
+        if (window.nativeFcmToken) {
+            clearInterval(nativeTokenRetryTimer);
+            nativeTokenRetryTimer = null;
+
+            try {
+                const result = await window.syncNativeTokenToFirestore();
+                console.log('[Auth] ✅ Delayed native token sync result:', result);
+            } catch (e) {
+                console.error('[Auth] ❌ Delayed native token sync threw:', e);
+            }
+            return;
+        }
+
+        if (attempts >= MAX_ATTEMPTS) {
+            clearInterval(nativeTokenRetryTimer);
+            nativeTokenRetryTimer = null;
+            console.warn('[Auth] ⚠️ Native FCM token never arrived after 60s — check android setup');
+        }
+    }, 2000);
+}
+
 async function handleLoggedIn(user, onCallStateChange) {
     hideScreen('login-screen');
     hideScreen('dashboard');
     hideScreen('pending-approval-screen');
     hideScreen('suspended-screen');
-    
+
     showSplash('Signing you in...');
 
     window.currentDriverId = user.uid;
-    
-    // 🟢 Sync the Android token to Firestore now that we have the driver ID
+
+    // 🟢 Attempt native token sync now (may no-op if token hasn't arrived yet)
     if (window.syncNativeTokenToFirestore) {
-        window.syncNativeTokenToFirestore();
+        try {
+            const syncResult = await window.syncNativeTokenToFirestore();
+            console.log('[Auth] Initial native token sync:', syncResult);
+
+            if (syncResult && syncResult.ok === false && syncResult.reason === 'no-token') {
+                console.log('[Auth] Waiting for native FCM token — setting up retry...');
+                scheduleNativeTokenRetry();
+            }
+        } catch (e) {
+            console.warn('[Auth] Initial native token sync threw:', e);
+            scheduleNativeTokenRetry();
+        }
+    } else {
+        console.log('[Auth] syncNativeTokenToFirestore not defined — web-only mode?');
     }
 
     ProfileManager.init(db, user.uid, "driver");
@@ -142,7 +198,13 @@ async function handleLoggedIn(user, onCallStateChange) {
 
     startHeartbeat(db, 'driver', user.uid);
 
-    const token = await getDeviceToken(messaging);
+    // 🟢 Web FCM token fetch (safe even if messaging is null)
+    let token = null;
+    try {
+        token = await getDeviceToken(messaging);
+    } catch (e) {
+        console.warn('[Auth] getDeviceToken failed:', e.message);
+    }
     window.currentDriverToken = token || "";
 
     const notifBanner = document.getElementById('notif-banner');
@@ -150,12 +212,25 @@ async function handleLoggedIn(user, onCallStateChange) {
     if (token) {
         if (notifBanner) notifBanner.style.display = 'none';
 
-        syncDriverToken(db, messaging, user.uid).catch((e) =>
-            console.warn("[Auth] Initial token sync failed:", e)
-        );
+        // ✅ Await initial save so we know it landed
+        try {
+            await syncDriverToken(db, messaging, user.uid);
+            console.log('[Auth] ✅ Web FCM token synced to Firestore');
+        } catch (e) {
+            console.error('[Auth] ❌ Initial web token sync failed:', e.code || e.message);
+
+            // Retry once after 3s in case it was transient
+            setTimeout(() => {
+                syncDriverToken(db, messaging, user.uid)
+                    .then(() => console.log('[Auth] ✅ Web token sync retry succeeded'))
+                    .catch((e2) => console.error('[Auth] ❌ Web token retry failed:', e2.code || e2.message));
+            }, 3000);
+        }
+
         watchTokenRefresh(db, messaging, user.uid).catch((e) =>
             console.warn("[Auth] Token refresh listener failed:", e)
         );
+
         document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "visible") {
                 verifyTokenOnce(db, messaging, user.uid).catch((e) =>
@@ -173,20 +248,20 @@ async function handleLoggedIn(user, onCallStateChange) {
         if (!firstServerSnapshot) {
             console.warn('[Auth] Server snapshot slow — proceeding with cache data');
             firstServerSnapshot = true;
-            hideSplash(); 
+            hideSplash();
         }
     }, SERVER_SNAPSHOT_FALLBACK_MS);
 
     onSnapshot(doc(db, "drivers", user.uid), { includeMetadataChanges: true }, (docSnap) => {
         if (!firstServerSnapshot) {
-            if (docSnap.metadata.fromCache) return; 
+            if (docSnap.metadata.fromCache) return;
             firstServerSnapshot = true;
             clearTimeout(slowServerFallback);
             hideSplash();
         }
 
         if (docSnap.metadata.fromCache) {
-            return; 
+            return;
         }
 
         if (!docSnap.exists()) {
@@ -245,16 +320,27 @@ async function handleLoggedIn(user, onCallStateChange) {
 }
 
 function handleLoggedOut() {
+    // 🟢 Clear any pending native token retry
+    if (nativeTokenRetryTimer) {
+        clearInterval(nativeTokenRetryTimer);
+        nativeTokenRetryTimer = null;
+    }
+
     stopHeartbeat();
     hideSplash();
     hideScreen('dashboard');
     showScreen('login-screen', 'flex');
     window.currentDriverId = null;
     window.currentDriverToken = null;
-    orderSystemInitialized = false; 
+    window.nativeFcmToken = null;
+    orderSystemInitialized = false;
 }
 
 export async function logoutDriver() {
+    if (nativeTokenRetryTimer) {
+        clearInterval(nativeTokenRetryTimer);
+        nativeTokenRetryTimer = null;
+    }
     stopHeartbeat();
     stopTracking();
     await signOut(auth);
@@ -267,6 +353,15 @@ window.enableNotifications = async () => {
         const banner = document.getElementById('notif-banner');
         if (banner) banner.style.display = 'none';
         showToast("Native notifications are active.");
+
+        // 🟢 Native path: try token sync, and retry if needed
+        if (window.syncNativeTokenToFirestore) {
+            const r = await window.syncNativeTokenToFirestore();
+            if (r && r.ok === false && r.reason === 'no-token') {
+                console.log('[Auth] Native token not ready — starting retry');
+                scheduleNativeTokenRetry();
+            }
+        }
         return;
     }
 
@@ -276,19 +371,37 @@ window.enableNotifications = async () => {
 
     try {
         const permission = await window.Notification.requestPermission();
-        
+
         if (permission === 'granted') {
             const banner = document.getElementById('notif-banner');
             if (banner) banner.style.display = 'none';
-            
+
             showToast("Fetching notification token...");
-            
+
             const token = await getDeviceToken(messaging);
             window.currentDriverToken = token;
-            
+
             if (token && window.currentDriverId) {
-                await syncDriverToken(db, messaging, window.currentDriverId);
-                showToast("✅ Notifications enabled! Calls will now connect.");
+                try {
+                    await syncDriverToken(db, messaging, window.currentDriverId);
+                    console.log('[Auth] ✅ Manual token sync succeeded');
+                    showToast("✅ Notifications enabled! Calls will now connect.");
+                } catch (e) {
+                    console.error('[Auth] ❌ Manual token sync failed:', e.code || e.message);
+                    showToast("⚠️ Token saved locally but Firestore write failed. Retrying...");
+
+                    setTimeout(() => {
+                        syncDriverToken(db, messaging, window.currentDriverId)
+                            .then(() => {
+                                console.log('[Auth] ✅ Manual retry succeeded');
+                                showToast("✅ Notifications fully enabled!");
+                            })
+                            .catch((e2) => {
+                                console.error('[Auth] ❌ Manual retry failed:', e2.code || e2.message);
+                                showToast("⚠️ Could not save token. Check Firestore rules.");
+                            });
+                    }, 3000);
+                }
             } else {
                 showToast("⚠️ Failed to generate token. Please try again.");
             }
