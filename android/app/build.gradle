@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+apply plugin: 'com.google.gms.google-services'   // 🟢 MUST be here, before android {}
+
 android {
     namespace = "com.bofelo.driver"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -20,9 +22,11 @@ android {
         }
     }
 }
+
 repositories {
     flatDir{ dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs' }
 }
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
@@ -31,13 +35,16 @@ dependencies {
     implementation project(':capacitor-android')
     implementation project(':capacitor-cordova-android-plugins')
     implementation project(':capacitor-push-notifications')
+
+    // Firebase BOM + Messaging
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-messaging'
+
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 }
+
 apply from: 'capacitor.build.gradle'
 
-// 🟢 FORCE THE GOOGLE SERVICES PLUGIN
-apply plugin: 'com.google.gms.google-services'
+// ❌ REMOVED: apply plugin: 'com.google.gms.google-services' — now applied at TOP
