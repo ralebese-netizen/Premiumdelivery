@@ -118,6 +118,15 @@ async function requestNativePermissionsAtBoot() {
 
         // 2. Create the high-priority Call Channel
         if (LocalNotifications) {
+            try {
+                // 🟢 FORCE RE-CREATE THE CHANNEL: 
+                // Android caches channel settings. Deleting it first forces Android
+                // to read the new vibration/sound settings on every app boot.
+                await LocalNotifications.deleteChannel({ id: 'bofelo_calls' });
+            } catch (e) {
+                // Channel doesn't exist yet — that's fine
+            }
+
             await LocalNotifications.createChannel({
                 id: 'bofelo_calls',
                 name: 'Incoming Calls',
@@ -126,9 +135,9 @@ async function requestNativePermissionsAtBoot() {
                 visibility: 1, // Public (shows on lock screen)
                 sound: 'ringtone',
                 vibration: true,
-                vibrationPattern: [500, 1000, 500, 1000, 500, 1000] // 👈 ADDED
+                vibrationPattern: [500, 1000, 500, 1000, 500, 1000] 
             });
-            console.log('[Native Boot] ✅ Call notification channel created');
+            console.log('[Native Boot] ✅ Call notification channel reset & created');
         }
 
         // 3. Request Location
@@ -173,7 +182,7 @@ function wireNativePushListeners() {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
 
-            // 👇 ADDED TO VIBRATE IN FOREGROUND
+            // 👇 VIBRATE IN FOREGROUND
             if (navigator.vibrate) {
                 navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
@@ -195,7 +204,7 @@ function wireNativePushListeners() {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
 
-            // 👇 ADDED TO VIBRATE WHEN TAPPED
+            // 👇 VIBRATE WHEN TAPPED
             if (navigator.vibrate) {
                 navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
