@@ -176,7 +176,9 @@ async function handleLoggedIn(user, onCallStateChange) {
                     importance: 5, // High importance (makes sound)
                     visibility: 1, // Public (shows on lock screen)
                     sound: 'ringtone', // Uses the phone's default ringtone
-                    vibration: true
+                    vibration: true,   // 👈 Enables vibration
+                    lights: true,      // 👈 Enables LED flash (if supported)
+                    vibrationPattern: [500, 1000, 500, 1000, 500, 1000] // 👈 Strong vibration pattern
                 });
                 console.log("[Auth] ✅ Call notification channel created");
             }
