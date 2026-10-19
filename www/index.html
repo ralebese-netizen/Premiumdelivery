@@ -220,29 +220,34 @@
         </div>
     </div>
 
-    <!-- 🟢 Native Permission Startup Trigger for Capacitor -->
+    <!-- 🟢 Native Permission Startup Trigger for Capacitor (Non-Blocking) -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(async () => {
+            setTimeout(() => {
                 try {
                     const { Geolocation, PushNotifications } = window.Capacitor?.Plugins || {};
                     
                     if (Geolocation) {
-                        const geoStatus = await Geolocation.requestPermissions();
-                        console.log('Startup Geolocation permission:', geoStatus);
+                        Geolocation.requestPermissions().catch(err => {
+                            console.log('Geolocation permission error:', err);
+                        });
                     }
                     
                     if (PushNotifications) {
-                        const pushStatus = await PushNotifications.requestPermissions();
-                        if (pushStatus.receive === 'granted') {
-                            await PushNotifications.register();
-                            console.log('Startup Push Notifications registered.');
-                        }
+                        PushNotifications.requestPermissions().then(pushStatus => {
+                            if (pushStatus.receive === 'granted') {
+                                PushNotifications.register().catch(err => {
+                                    console.log('Push registration error:', err);
+                                });
+                            }
+                        }).catch(err => {
+                            console.log('Push permission error:', err);
+                        });
                     }
                 } catch (err) {
                     console.log('Capacitor native plugins not available in browser mode:', err);
                 }
-            }, 1500);
+            }, 1000);
         });
     </script>
 
