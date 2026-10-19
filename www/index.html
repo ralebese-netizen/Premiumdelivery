@@ -20,6 +20,10 @@
         #login-screen, #dashboard, #pending-approval-screen, #suspended-screen, #signup-screen {
             display: none !important;
         }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -30,7 +34,7 @@
             <svg style="animation: spin 1s linear infinite; margin-bottom: 12px;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#e85d21" stroke-width="2">
                 <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
             </svg>
-            <p style="color: #6b7280; font-size: 14px; font-weight: 600; font-family: 'Inter', sans-serif;">Loading...</p>
+            <p id="boot-splash-text" style="color: #6b7280; font-size: 14px; font-weight: 600; font-family: 'Inter', sans-serif;">Loading...</p>
         </div>
     </div>
 
@@ -220,6 +224,68 @@
         </div>
     </div>
 
+    <!-- 🟢 Fail-safe: if app.js never boots, this reveals the login screen and unblocks the UI -->
+    <script>
+        (function () {
+            var BOOT_TIMEOUT_MS = 8000;
+
+            function forceUnblock(reason) {
+                var splash = document.getElementById('boot-splash');
+                if (!splash) return;
+                console.warn('[boot] Fail-safe triggered:', reason);
+                splash.style.display = 'none';
+
+                // Unlock screens via injected style tag (overrides display: none !important)
+                var unlock = document.createElement('style');
+                unlock.id = 'boot-unlock-style';
+                unlock.textContent = '#login-screen { display: block !important; }';
+                document.head.appendChild(unlock);
+            }
+
+            // 1. Timeout fallback — if nothing has hidden the splash in 8s, show login
+            window.addEventListener('load', function () {
+                setTimeout(function () {
+                    var splash = document.getElementById('boot-splash');
+                    if (splash && splash.style.display !== 'none') {
+                        forceUnblock('timeout after ' + BOOT_TIMEOUT_MS + 'ms');
+                    }
+                }, BOOT_TIMEOUT_MS);
+            });
+
+            // 2. Detect uncaught errors during boot
+            window.addEventListener('error', function (e) {
+                console.error('[boot] Uncaught error:', e.message, e.filename, e.lineno);
+                var splash = document.getElementById('boot-splash');
+                if (splash && splash.style.display !== 'none') {
+                    // Give app.js a moment, but show diagnostic text
+                    var t = document.getElementById('boot-splash-text');
+                    if (t) t.textContent = 'Loading failed — retrying...';
+                }
+            });
+
+            // 3. Detect module load failure (unhandled promise rejection from module scripts)
+            window.addEventListener('unhandledrejection', function (e) {
+                console.error('[boot] Unhandled rejection:', e.reason);
+            });
+
+            // 4. Manual override — tap splash 3 times quickly to force show login
+            var tapCount = 0, tapTimer = null;
+            document.addEventListener('DOMContentLoaded', function () {
+                var splash = document.getElementById('boot-splash');
+                if (!splash) return;
+                splash.addEventListener('click', function () {
+                    tapCount++;
+                    clearTimeout(tapTimer);
+                    tapTimer = setTimeout(function () { tapCount = 0; }, 800);
+                    if (tapCount >= 3) {
+                        tapCount = 0;
+                        forceUnblock('manual triple-tap');
+                    }
+                });
+            });
+        })();
+    </script>
+
     <!-- 🟢 Native Permission Startup Trigger for Capacitor (Non-Blocking) -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -251,6 +317,26 @@
         });
     </script>
 
-    <script type="module" src="driver/js/app.js"></script>
+    <!-- 🟢 Main app — use onerror + fallback path resolution -->
+    <script type="module" src="driver/js/app.js"
+            onerror="console.error('[boot] Failed to load driver/js/app.js — check the path/MIME type.')"></script>
+
+    <!-- 🟢 Fallback: if the module 404s (module scripts fail silently), detect via fetch -->
+    <script>
+        (function () {
+            // Non-module fetch check to detect a 404 on the module path
+            fetch('driver/js/app.js', { method: 'HEAD' })
+                .then(function (res) {
+                    if (!res.ok) {
+                        console.error('[boot] app.js responded with', res.status);
+                        var t = document.getElementById('boot-splash-text');
+                        if (t) t.textContent = 'Loading failed — check console.';
+                    }
+                })
+                .catch(function (err) {
+                    console.warn('[boot] Could not verify app.js (offline?)', err);
+                });
+        })();
+    </script>
 </body>
 </html>
