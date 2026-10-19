@@ -14,7 +14,7 @@ window.showToast = showToast;
 window.openChatModal = openChatModal;
 window.closeChatModal = closeChatModal;
 
-// --- Capacitor plugins — safe dynamic import (browser mode won't crash) ---
+// --- Capacitor plugins ---
 let PushNotifications = null;
 let Geolocation = null;
 let LocalNotifications = null;
@@ -39,7 +39,7 @@ async function loadCapacitorPlugins() {
     }
 }
 
-// --- Fail-safe: always unblock UI on any boot error ---
+// --- Fail-safe ---
 function showBootFailure(err) {
     console.error('[Driver] Boot failure:', err);
     try {
@@ -119,13 +119,9 @@ async function requestNativePermissionsAtBoot() {
         // 2. Create the high-priority Call Channel
         if (LocalNotifications) {
             try {
-                // 🟢 FORCE RE-CREATE THE CHANNEL: 
-                // Android caches channel settings. Deleting it first forces Android
-                // to read the new vibration/sound settings on every app boot.
+                // Delete first to ensure vibration settings update
                 await LocalNotifications.deleteChannel({ id: 'bofelo_calls' });
-            } catch (e) {
-                // Channel doesn't exist yet — that's fine
-            }
+            } catch (e) {}
 
             await LocalNotifications.createChannel({
                 id: 'bofelo_calls',
@@ -135,9 +131,9 @@ async function requestNativePermissionsAtBoot() {
                 visibility: 1, // Public (shows on lock screen)
                 sound: 'ringtone',
                 vibration: true,
-                vibrationPattern: [500, 1000, 500, 1000, 500, 1000] 
+                vibrationPattern: [500, 1000, 500, 1000, 500, 1000]
             });
-            console.log('[Native Boot] ✅ Call notification channel reset & created');
+            console.log('[Native Boot] ✅ Call notification channel created');
         }
 
         // 3. Request Location
@@ -182,8 +178,27 @@ function wireNativePushListeners() {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
 
-            // 👇 VIBRATE IN FOREGROUND
-            if (navigator.vibrate) {
+            // 🟢 NATIVE VIBRATION FALLBACK
+            if (LocalNotifications) {
+                try {
+                    await LocalNotifications.schedule({
+                        notifications: [{
+                            title: "Incoming Call",
+                            body: "Vibrating...",
+                            id: Math.floor(Date.now() / 1000),
+                            channelId: 'bofelo_calls',
+                            sound: null, 
+                            attachments: null,
+                            actionTypeId: '',
+                            extra: null
+                        }]
+                    });
+                    console.log('[Native] Vibration triggered via LocalNotifications');
+                } catch (err) {
+                    console.warn('[Native] Vibration failed:', err);
+                    if (navigator.vibrate) navigator.vibrate([500, 1000, 500, 1000]);
+                }
+            } else if (navigator.vibrate) {
                 navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
         }
@@ -204,7 +219,7 @@ function wireNativePushListeners() {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
 
-            // 👇 VIBRATE WHEN TAPPED
+            // 🟢 VIBRATE WHEN TAPPED
             if (navigator.vibrate) {
                 navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
