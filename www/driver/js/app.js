@@ -125,7 +125,8 @@ async function requestNativePermissionsAtBoot() {
                 importance: 5, // High importance
                 visibility: 1, // Public (shows on lock screen)
                 sound: 'ringtone',
-                vibration: true
+                vibration: true,
+                vibrationPattern: [500, 1000, 500, 1000, 500, 1000] // 👈 ADDED
             });
             console.log('[Native Boot] ✅ Call notification channel created');
         }
@@ -171,6 +172,11 @@ function wireNativePushListeners() {
             if (ringtone) {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
             }
+
+            // 👇 ADDED TO VIBRATE IN FOREGROUND
+            if (navigator.vibrate) {
+                navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
+            }
         }
     });
 
@@ -187,6 +193,11 @@ function wireNativePushListeners() {
             const ringtone = document.getElementById('order-ringtone');
             if (ringtone) {
                 ringtone.play().catch(e => console.warn("Audio blocked:", e));
+            }
+
+            // 👇 ADDED TO VIBRATE WHEN TAPPED
+            if (navigator.vibrate) {
+                navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
             }
         }
     });
