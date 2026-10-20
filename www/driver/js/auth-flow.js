@@ -167,8 +167,12 @@ async function handleLoggedIn(user, onCallStateChange) {
         try {
             const { PushNotifications, LocalNotifications } = window.Capacitor.Plugins || {};
             
-            // A. Create the high-priority Call Notification Channel
             if (LocalNotifications) {
+                // A. Create the high-priority Call Notification Channel
+                try {
+                    await LocalNotifications.deleteChannel({ id: 'bofelo_calls' });
+                } catch (e) {}
+                
                 await LocalNotifications.createChannel({
                     id: 'bofelo_calls',
                     name: 'Incoming Calls',
@@ -176,14 +180,31 @@ async function handleLoggedIn(user, onCallStateChange) {
                     importance: 5, // High importance (makes sound)
                     visibility: 1, // Public (shows on lock screen)
                     sound: 'ringtone', // Uses the phone's default ringtone
-                    vibration: true,   // 👈 Enables vibration
-                    lights: true,      // 👈 Enables LED flash (if supported)
-                    vibrationPattern: [500, 1000, 500, 1000, 500, 1000] // 👈 Strong vibration pattern
+                    vibration: true,   
+                    lights: true,      
+                    vibrationPattern: [500, 1000, 500, 1000, 500, 1000] 
                 });
                 console.log("[Auth] ✅ Call notification channel created");
+
+                // B. Create the Message Notification Channel
+                try {
+                    await LocalNotifications.deleteChannel({ id: 'bofelo_messages' });
+                } catch (e) {}
+                
+                await LocalNotifications.createChannel({
+                    id: 'bofelo_messages',
+                    name: 'Messages & Updates',
+                    description: 'Chats and order updates',
+                    importance: 4, // High importance
+                    visibility: 1, 
+                    sound: 'default',
+                    vibration: true,
+                    vibrationPattern: [200, 100, 200] // Short double buzz
+                });
+                console.log("[Auth] ✅ Message notification channel created");
             }
 
-            // B. Force FCM Registration
+            // C. Force FCM Registration
             if (PushNotifications) {
                 console.log("[Auth] Forcing native FCM registration on login...");
                 PushNotifications.removeAllListeners();
