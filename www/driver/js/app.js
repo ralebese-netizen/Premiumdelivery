@@ -116,10 +116,10 @@ async function requestNativePermissionsAtBoot() {
             }
         }
 
-        // 2. Create the high-priority Call Channel
+        // 2. Create the high-priority Call Channel (Using System Default Ringtone)
         if (LocalNotifications) {
             try {
-                // Delete first to ensure vibration settings update
+                // Delete first to ensure channel configuration updates properly
                 await LocalNotifications.deleteChannel({ id: 'bofelo_calls' });
             } catch (e) {}
 
@@ -127,9 +127,8 @@ async function requestNativePermissionsAtBoot() {
                 id: 'bofelo_calls',
                 name: 'Incoming Calls',
                 description: 'Ringing for customer calls',
-                importance: 5, // High importance
+                importance: 5, // High importance (heads-up notification)
                 visibility: 1, // Public (shows on lock screen)
-                sound: 'ringtone',
                 vibration: true,
                 vibrationPattern: [500, 1000, 500, 1000, 500, 1000]
             });
@@ -172,30 +171,23 @@ function wireNativePushListeners() {
             
             const banner = document.getElementById('incoming-call-banner');
             if (banner) banner.style.display = 'block';
-            
-            const ringtone = document.getElementById('order-ringtone');
-            if (ringtone) {
-                ringtone.play().catch(e => console.warn("Audio blocked:", e));
-            }
 
-            // 🟢 NATIVE VIBRATION FALLBACK
+            // 🟢 TRIGGER NATIVE SYSTEM RING & VIBRATION VIA LOCAL NOTIFICATIONS
             if (LocalNotifications) {
                 try {
                     await LocalNotifications.schedule({
                         notifications: [{
                             title: "Incoming Call",
-                            body: "Vibrating...",
+                            body: "Customer is calling...",
                             id: Math.floor(Date.now() / 1000),
                             channelId: 'bofelo_calls',
-                            sound: null, 
-                            attachments: null,
-                            actionTypeId: '',
-                            extra: null
+                            sound: undefined, // Defaults to user's system ringtone
+                            extra: { orderId: notification.data.orderId }
                         }]
                     });
-                    console.log('[Native] Vibration triggered via LocalNotifications');
+                    console.log('[Native] System ring & vibration triggered via LocalNotifications');
                 } catch (err) {
-                    console.warn('[Native] Vibration failed:', err);
+                    console.warn('[Native] Notification scheduling failed:', err);
                     if (navigator.vibrate) navigator.vibrate([500, 1000, 500, 1000]);
                 }
             } else if (navigator.vibrate) {
@@ -213,16 +205,6 @@ function wireNativePushListeners() {
             
             const banner = document.getElementById('incoming-call-banner');
             if (banner) banner.style.display = 'block';
-
-            const ringtone = document.getElementById('order-ringtone');
-            if (ringtone) {
-                ringtone.play().catch(e => console.warn("Audio blocked:", e));
-            }
-
-            // 🟢 VIBRATE WHEN TAPPED
-            if (navigator.vibrate) {
-                navigator.vibrate([500, 1000, 500, 1000, 500, 1000]);
-            }
         }
     });
 }
@@ -263,7 +245,6 @@ window.syncNativeTokenToFirestore = async () => {
 function setupAudioUnlock() {
     const unlock = () => {
         const elements = [
-            document.getElementById('order-ringtone'),
             document.getElementById('meeting-audio'),
         ];
         for (const audio of elements) {
@@ -282,23 +263,12 @@ function setupAudioUnlock() {
     document.addEventListener('keydown', unlock);
 }
 
-// --- SW ringtone listener ---
+// --- SW listener ---
 function setupServiceWorkerListener() {
     if (!('serviceWorker' in navigator)) return;
     navigator.serviceWorker.addEventListener('message', (event) => {
         const data = event.data;
-        if (!data || data.type !== 'play-ringtone') return;
-        const ringtone = document.getElementById('order-ringtone') || document.getElementById('notification-chime');
-        if (!ringtone) return;
-        try {
-            ringtone.currentTime = 0;
-            const p = ringtone.play();
-            if (p && typeof p.then === 'function') {
-                p.catch((e) => console.warn('[Driver] Ringtone blocked:', e.message));
-            }
-        } catch (e) {
-            console.warn('[Driver] Ringtone threw:', e.message);
-        }
+        if (!data) return;
     });
 }
 
@@ -318,19 +288,6 @@ function handleIncomingCallFromUrl() {
             window.currentOrderId = orderId;
             callState.incomingCallOrderId = orderId;
             window.dispatchEvent(new CustomEvent('bofeloOrderActive', { detail: orderId }));
-        }
-
-        const ringtone = document.getElementById('order-ringtone') || document.getElementById('notification-chime');
-        if (!ringtone) return;
-
-        try {
-            ringtone.currentTime = 0;
-            const p = ringtone.play();
-            if (p && typeof p.then === 'function') {
-                p.catch((e) => console.warn('[Driver] URL ringtone blocked:', e.message));
-            }
-        } catch (e) {
-            console.warn('[Driver] URL ringtone threw:', e.message);
         }
     } catch (e) {
         console.warn('[Driver] handleIncomingCallFromUrl failed:', e.message);
